@@ -245,10 +245,10 @@ try {
   await settings.evaluate(() => window.assistant.trigger()); await frame.locator('.dot.ready').waitFor(); await frame.locator('.dot').hover(); await frame.locator('.answer').filter({ hasText: 'Plants use light' }).waitFor();
   assert.equal((await settings.evaluate(() => window.assistant.settings())).config.provider, 'gemini');
   console.log('PASS: sharing hides both clients; Gemini switching and session adapter');
-  await options.locator('#forget').click(); await options.locator('#status').filter({ hasText: 'Disconnected' }).waitFor();
-  const count = await desktop.evaluate(() => globalThis.__smokeRequests);
   await frame.locator('.close').click();
   await page.locator('iframe[title="AI Quick Answer"]').waitFor({ state: 'hidden' }); await expect(widget.locator('.dot')).toBeHidden();
+  await options.locator('#forget').click(); await options.locator('#status').filter({ hasText: 'Disconnected' }).waitFor();
+  const count = await desktop.evaluate(() => globalThis.__smokeRequests);
   if (count !== 5) console.log('Request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds));
   assert.equal(count, 5, 'Each user trigger produces one request');
   console.log(`Smoke passed: ${count} fixture requests. Screenshots in test-results/.`);

@@ -10,7 +10,7 @@ const api: DesktopAPI = {
   removeCredential: provider => ipcRenderer.invoke('credential:remove', provider),
   rotatePairing: () => ipcRenderer.invoke('pairing:rotate'),
   trigger: () => ipcRenderer.invoke('assistant:trigger'),
-  copyCode: () => ipcRenderer.invoke('assistant:copy'),
+  copyCode: requestId => ipcRenderer.invoke('assistant:copy', requestId),
   resizeWidget: (width, height) => ipcRenderer.send('widget:resize', width, height),
   onState: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {

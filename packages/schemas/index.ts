@@ -31,6 +31,7 @@ export const stateSchema = z.object({
   config: configSchema
 }).strict();
 export type AssistantState = z.infer<typeof stateSchema>;
+export const copyRequestSchema = z.object({ requestId: z.number().int().nonnegative() }).strict();
 
 const cookieValue = z.string().min(1).max(8192).regex(/^[\x21-\x7e]+$/).refine(v => !/[;,]/.test(v), 'Invalid cookie value');
 const cookieName = z.string().regex(/^[A-Za-z0-9_-]+$/).max(128);

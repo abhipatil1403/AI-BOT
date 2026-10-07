@@ -8,7 +8,7 @@ A Windows tray assistant and Chromium Manifest V3 extension. Select text, press 
 
 ## Install and run
 
-Requires Windows 10/11 and Node.js 22 or newer for development.
+Requires Windows 10/11 and Node.js 22.12 or newer for development.
 
 ```sh
 npm install
@@ -59,7 +59,7 @@ Answers/questions are kept in memory only and replaced by the next valid request
 
 Windows credentials and the desktop pairing token are encrypted using Electron `safeStorage` (Windows DPAPI) in the app's user-data directory. Encryption protects against other Windows users; it does not defend against malicious processes running as your own Windows account. Saving fails if secure storage is unavailable. Non-sensitive settings are saved separately. The extension pairing token is stored in trusted extension-local storage; it authenticates access to clipboard triggers and answers, so keep it private. Rotating it in desktop Settings disconnects existing extension pairings.
 
-The bridge binds only `127.0.0.1:47831`, checks its Host header, authenticates each request, rejects website Origins and never returns credentials. It provides no remote provider/settings-write APIs. The extension worker never accepts clipboard text from a webpage. The desktop renderers use sandboxing, context isolation, a narrow validated IPC bridge and a restrictive content security policy. Rendered answers use text nodes, never HTML.
+The bridge binds only `127.0.0.1:47831`, checks its Host header, authenticates each request, rejects website Origins and never returns credentials. It provides no remote provider/settings-write APIs. Both clients route code copying through the desktop so Windows browser newline conversion cannot alter the raw snippet. The extension sends only the current answer ID; arbitrary clipboard text and stale copies are rejected. The extension worker never accepts clipboard text from a webpage. The desktop renderers use sandboxing, context isolation, a narrow validated IPC bridge and a restrictive content security policy. Rendered answers use text nodes, never HTML.
 
 ## Architecture
 

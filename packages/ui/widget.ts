@@ -84,10 +84,11 @@ export class Widget {
     this.root.classList.toggle('left', state.config.position.endsWith('left'));
     this.root.classList.toggle('top', state.config.position.startsWith('top'));
     const intentional = this.hovered || this.focused || this.expanded;
-    const show = !hidden && (state.phase === 'ready' || state.phase === 'error') && (intentional || (this.mcqVisible && state.config.visibility !== 'minimized'));
+    const show = !hidden && (state.phase === 'ready' || state.phase === 'error') && (state.answer?.type === 'mcq' ? this.mcqVisible && (intentional || state.config.visibility !== 'minimized') : intentional);
     this.panel.hidden = !show;
-    this.dot.className = `dot ${state.phase}`;
-    this.dot.setAttribute('aria-label', state.phase === 'ready' ? 'Answer available. Hover or focus to read' : state.phase === 'error' ? 'Assistant error. Hover or focus for details' : `Assistant ${state.phase}`);
+    const phase = state.phase === 'ready' && state.answer?.type === 'mcq' && !this.mcqVisible ? 'idle' : state.phase;
+    this.dot.className = `dot ${phase}`;
+    this.dot.setAttribute('aria-label', phase === 'ready' ? 'Answer available. Hover or focus to read' : phase === 'error' ? 'Assistant error. Hover or focus for details' : `Assistant ${phase}`);
     this.dot.setAttribute('aria-expanded', String(show));
     if (show) {
       const value = state.answer;

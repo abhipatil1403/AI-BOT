@@ -2,8 +2,9 @@ import { createServer, type Server } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { HOST, PORT } from '../../packages/protocol';
 import type { Controller } from './controller';
+import { copyRequestSchema } from '../../packages/schemas';
 
-export function startBridge(controller: Controller, token: () => string, openSettings: () => void, port = PORT): Promise<Server> {
+export function startBridge(controller: Controller, token: () => string, openSettings: () => void, port = PORT, copyCode?: (code: string) => Promise<void>): Promise<Server> {
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -30,8 +31,21 @@ export function startBridge(controller: Controller, token: () => string, openSet
     } else if (req.method === 'POST' && req.url === '/v1/settings') {
       openSettings(); res.end('{}');
     } else if (req.method === 'POST' && req.url === '/v1/copy') {
-      // Clipboard writes are deliberately handled in the desktop main process.
-      res.writeHead(405).end('{}');
+      if (!copyCode) { res.writeHead(405).end('{}'); return; }
+      try {
+        let body = '';
+        for await (const chunk of req) {
+          body += String(chunk);
+          if (body.length > 128) { res.writeHead(413).end('{}'); return; }
+        }
+        const parsed = copyRequestSchema.safeParse(JSON.parse(body));
+        if (!parsed.success) { res.writeHead(400).end('{}'); return; }
+        const state = controller.state;
+        if (state.requestId !== parsed.data.requestId || state.phase !== 'ready' || state.answer?.type !== 'code') { res.writeHead(409).end('{}'); return; }
+        // Only validated, current model code can be copied. Clients send an ID,
+        // never arbitrary clipboard text. Electron preserves the raw snippet.
+        await copyCode(state.answer.code); res.end('{}');
+      } catch { res.writeHead(400).end('{}'); }
     } else { res.writeHead(404).end('{}'); }
   });
   server.requestTimeout = 5000; server.headersTimeout = 5000; server.maxHeadersCount = 20;

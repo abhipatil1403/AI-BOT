@@ -55,7 +55,7 @@
         "nsis",
         "portable"
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false
     },
     "nsis": {
       "oneClick": false,

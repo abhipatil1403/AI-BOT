@@ -64,5 +64,6 @@ export class HotkeyGate {
     return matches;
   }
   up(key: number): void { this.held.delete(key); }
+  isDown(key: number): boolean { return this.held.has(key); }
   reset(): void { this.held.clear(); }
 }

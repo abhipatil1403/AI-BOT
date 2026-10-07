@@ -12,7 +12,7 @@ export interface DesktopAPI {
   removeCredential(provider: Config['provider']): Promise<void>;
   rotatePairing(): Promise<string>;
   trigger(): Promise<void>;
-  copyCode(): Promise<void>;
+  copyCode(requestId: number): Promise<void>;
   resizeWidget(width: number, height: number): void;
   onState(callback: (state: AssistantState) => void): () => void;
 }

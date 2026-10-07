@@ -17,6 +17,11 @@ describe('widget behavior', () => {
     expect(panel.hidden).toBe(false); vi.advanceTimersByTime(3000); widget.update(state); vi.advanceTimersByTime(2001); expect(panel.hidden).toBe(true);
   });
   it('keeps MCQ until next request when duration is zero', () => { vi.useFakeTimers(); const state = ready({ type: 'mcq', answer: 'B' }); state.config = { ...defaultConfig, duration: 0 }; const { panel } = setup(state); vi.advanceTimersByTime(60000); expect(panel.hidden).toBe(false); });
+  it('returns MCQ to idle at the deadline even while hovered', () => {
+    vi.useFakeTimers(); const { panel, container, dot } = setup(ready({ type: 'mcq', answer: 'B' }));
+    container.firstElementChild!.dispatchEvent(new MouseEvent('mouseenter')); expect(panel.hidden).toBe(false);
+    vi.advanceTimersByTime(5001); expect(panel.hidden).toBe(true); expect(dot.className).toBe('dot idle');
+  });
   it('shows descriptive text only on hover and has no timer', () => {
     vi.useFakeTimers(); const { panel, container } = setup(ready({ type: 'descriptive', answer: 'Paris' })); expect(panel.hidden).toBe(true);
     container.firstElementChild!.dispatchEvent(new MouseEvent('mouseenter')); expect(panel.hidden).toBe(false); vi.advanceTimersByTime(60000); expect(panel.hidden).toBe(false);

@@ -1,5 +1,4 @@
 import { _electron, chromium, expect } from '@playwright/test';
-import { uIOhook, UiohookKey } from 'uiohook-napi';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,7 +9,7 @@ const profile = await mkdtemp(join(tmpdir(), 'ai-bot-e2e-'));
 const browserProfile = await mkdtemp(join(tmpdir(), 'ai-bot-browser-'));
 const output = resolve('test-results'); await mkdir(output, { recursive: true });
 const env = { ...process.env, AI_BOT_SMOKE_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE;
-let desktop; let browser;
+let desktop; let browser; let originalClipboard;
 async function desktopWindow(predicate) {
   await expect.poll(() => desktop.windows().some(predicate), { timeout: 60000 }).toBe(true);
   return desktop.windows().find(predicate);
@@ -30,6 +29,7 @@ try {
   assert(settings, 'Settings window launched');
   await settings.locator('#connection').filter({ hasText: /Setup needed|Provider configured/ }).waitFor();
   const widget = await desktopWindow(page => page.url().endsWith('widget.html')); assert(widget, 'Widget window launched');
+  originalClipboard = await desktop.evaluate(({ clipboard }) => clipboard.readText());
 
   // Test-only HTTP fixtures installed externally into the running main process.
   // Production bundles contain no mock provider or synthetic-response branch.
@@ -71,7 +71,7 @@ try {
   await desktop.evaluate(async ({ BrowserWindow }) => {
     const target = new BrowserWindow({ width: 480, height: 260, title: 'AI Quick Answer smoke target' });
     globalThis.__smokeTarget = target;
-    await target.loadURL('data:text/html,<html><body><textarea id="target" autofocus></textarea></body></html>'); target.show(); target.focus();
+    await target.loadURL('data:text/html,<html><body><textarea id="target" autofocus></textarea></body></html>'); target.show(); target.focus(); target.webContents.focus();
   });
   const target = await desktopWindow(page => page.url().startsWith('data:text/html')); assert(target, 'Native paste target exists');
   const text = 'What is photosynthesis?';
@@ -84,22 +84,33 @@ try {
   });
   const focused = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.getTitle());
   assert.equal(focused, 'AI Quick Answer smoke target', 'Test window must own focus before native input');
-  uIOhook.start();
-  await new Promise(resolve => setTimeout(resolve, 200));
-  uIOhook.keyToggle(UiohookKey.Ctrl, 'down');
-  await new Promise(resolve => setTimeout(resolve, 100));
-  uIOhook.keyToggle(UiohookKey.V, 'down');
-  await new Promise(resolve => setTimeout(resolve, 100));
-  uIOhook.keyToggle(UiohookKey.V, 'up'); uIOhook.keyToggle(UiohookKey.Ctrl, 'up');
-  await new Promise(resolve => setTimeout(resolve, 300)); uIOhook.stop();
+  if (process.env.AI_BOT_SMOKE_NATIVE === 'manual') console.log('Smoke: waiting for native Ctrl+V in the smoke target window');
+  else {
+    await desktop.evaluate(async ({ app, BrowserWindow }) => {
+      const { createRequire } = process.getBuiltinModule('module');
+      const { uIOhook, UiohookKey } = createRequire(`${app.getAppPath()}/package.json`)('uiohook-napi');
+      globalThis.__smokeKeys = [];
+      const monitor = event => { if (event.keycode === UiohookKey.V) globalThis.__smokeKeys.push({ ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, meta: event.metaKey, focused: BrowserWindow.getFocusedWindow()?.getTitle() }); };
+      uIOhook.on('keydown', monitor);
+      uIOhook.keyToggle(UiohookKey.Ctrl, 'down');
+      await new Promise(resolve => setTimeout(resolve, 100));
+      uIOhook.keyToggle(UiohookKey.V, 'down');
+      await new Promise(resolve => setTimeout(resolve, 100));
+      uIOhook.keyToggle(UiohookKey.V, 'up'); uIOhook.keyToggle(UiohookKey.Ctrl, 'up');
+      await new Promise(resolve => setTimeout(resolve, 300)); uIOhook.removeListener('keydown', monitor);
+    });
+  }
   await target.locator('#target').filter({}).waitFor();
-  await target.waitForFunction(expected => document.querySelector('#target').value === expected, text).catch(async error => {
+  await target.waitForFunction(expected => document.querySelector('#target').value === expected, text, { timeout: process.env.AI_BOT_SMOKE_NATIVE === 'manual' ? 180000 : 30000 }).catch(async error => {
     console.log('Paste diagnostic:', JSON.stringify(await target.locator('#target').inputValue()), 'requests:', await desktop.evaluate(() => globalThis.__smokeRequests));
     console.log('Focus diagnostic:', await target.evaluate(() => ({ focused: document.hasFocus(), active: document.activeElement?.id, events: globalThis.__pasteEvents })), await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.getTitle()));
     await target.screenshot({ path: join(output, 'paste-failure.png') });
     throw error;
   });
-  await widget.locator('.dot.ready').waitFor();
+  await widget.locator('.dot.ready').waitFor().catch(async error => {
+    console.log('Hotkey diagnostic:', await desktop.evaluate(() => ({ requests: globalThis.__smokeRequests, keys: globalThis.__smokeKeys })), await widget.locator('.dot').getAttribute('class'));
+    throw error;
+  });
   assert.equal(await widget.locator('.panel').evaluate(node => node.hidden), true, 'Descriptive answer initially hidden');
   await widget.locator('.dot').hover(); await widget.locator('.answer').filter({ hasText: 'Plants use light' }).waitFor();
   assert.equal(await desktop.evaluate(({ clipboard }) => clipboard.readText()), text, 'Hotkey never changes clipboard');
@@ -112,6 +123,8 @@ try {
   await settings.evaluate(() => window.assistant.trigger());
   await widget.locator('.answer').filter({ hasText: 'B. Paris' }).waitFor();
   await widget.screenshot({ path: join(output, 'mcq.png') });
+  await widget.locator('.panel').waitFor({ state: 'hidden', timeout: 8000 });
+  await widget.locator('.dot.idle').waitFor();
   await new Promise(resolve => setTimeout(resolve, 350));
   await desktop.evaluate(({ clipboard }) => clipboard.writeText('Write a program to add two numbers'));
   await settings.evaluate(() => window.assistant.trigger());
@@ -132,6 +145,9 @@ try {
   const frame = page.frameLocator('iframe[title="AI Quick Answer"]');
   await frame.locator('.dot.ready').waitFor({ timeout: 20000 });
   await frame.locator('.dot').hover(); await frame.locator('.answer').filter({ hasText: 'def add' }).waitFor();
+  await desktop.evaluate(({ clipboard }) => clipboard.writeText('Browser copy sentinel'));
+  await frame.locator('.copy').click(); await expect(frame.locator('.copy')).toHaveText('Copied');
+  assert.equal(await desktop.evaluate(({ clipboard }) => clipboard.readText()), 'def add(a, b):\n    return a + b\n', 'Browser copies only raw code');
   assert.equal(await page.locator('body').innerText(), 'Assistant test page', 'Answer is not in page DOM');
   await page.screenshot({ path: join(output, 'extension.png') });
   console.log('PASS: actual MV3 extension pairs and renders authenticated companion state');
@@ -155,6 +171,13 @@ try {
   console.log(`Smoke passed: ${count} fixture requests. Screenshots in test-results/.`);
 } finally {
   await browser?.close();
+  if (desktop && originalClipboard !== undefined) {
+    await desktop.evaluate(async ({ clipboard }, original) => {
+      const current = await clipboard.readText();
+      const synthetic = ['What is photosynthesis?', 'Capital of France?\nA. Berlin\nB. Paris\nC. Rome', 'Write a program to add two numbers', 'def add(a, b):\n    return a + b\n', 'Browser copy sentinel'];
+      if (synthetic.includes(current)) await clipboard.writeText(original);
+    }, originalClipboard).catch(() => {});
+  }
   await desktop?.close();
   await new Promise(resolve => site.close(resolve));
   // Each path is a fresh mkdtemp directory under the OS temp root.

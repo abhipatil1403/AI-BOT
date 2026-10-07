@@ -40,6 +40,17 @@ describe('desktop bridge and clipboard requests', () => {
     const res = await fetch(`http://127.0.0.1:${port}/v1/state`, { headers: { Authorization: 'Bearer token' } });
     expect(await res.json()).not.toHaveProperty('answer');
   });
+  it('copies only the current validated code and rejects arbitrary or stale payloads', async () => {
+    const code = 'def add(a, b):\n    return a + b\n'; const copy = vi.fn().mockResolvedValue(undefined);
+    const controller = new Controller(defaultConfig, () => 'Write a program to add two numbers', () => ({ generate: async () => JSON.stringify({ type: 'code', language: 'python', code }), validate: async () => {} }), vi.fn());
+    await controller.trigger(); const port = await freePort(); servers.push(await startBridge(controller, () => 'token', vi.fn(), port, copy));
+    const endpoint = `http://127.0.0.1:${port}/v1/copy`; const headers = { Authorization: 'Bearer token', 'Content-Type': 'application/json' };
+    expect((await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ requestId: controller.state.requestId, text: 'untrusted' }) })).status).toBe(400);
+    expect(copy).not.toHaveBeenCalled();
+    expect((await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ requestId: controller.state.requestId }) })).status).toBe(200); expect(copy).toHaveBeenCalledExactlyOnceWith(code);
+    controller.configure(defaultConfig);
+    expect((await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ requestId: 1 }) })).status).toBe(409); expect(copy).toHaveBeenCalledTimes(1);
+  });
   it('ignores empty clipboard and debounces duplicate triggers', async () => {
     const generate = vi.fn(); const clipboard = vi.fn(() => '  ');
     const controller = new Controller(defaultConfig, clipboard, () => ({ generate, validate: vi.fn() }), vi.fn());

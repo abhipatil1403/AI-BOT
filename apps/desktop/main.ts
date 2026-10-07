@@ -1,11 +1,11 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, safeStorage, screen, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, powerMonitor, safeStorage, screen, Tray } from 'electron';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import type { Server } from 'node:http';
 import { z } from 'zod';
 import { AssistantError, type AIProvider } from '../../packages/core';
-import { configSchema, parseCookies, type AssistantState, type Config } from '../../packages/schemas';
+import { configSchema, copyRequestSchema, parseCookies, type AssistantState, type Config } from '../../packages/schemas';
 import { createProvider } from '../../packages/providers';
 import { PORT, type SettingsData } from '../../packages/protocol';
 import { Storage } from './storage';
@@ -125,7 +125,11 @@ function registerIPC(): void {
   handle('credential:remove', true, provider => { const name = z.enum(['groq', 'gemini']).parse(provider); storage.removeSecret(name); providers.delete(name); controller.configure(config); });
   handle('pairing:rotate', true, () => { const next = randomBytes(32).toString('hex'); storage.setSecret('pairing', next); pairingToken = next; return next; });
   handle('assistant:trigger', false, () => { void controller.trigger(); });
-  handle('assistant:copy', false, async () => { if (controller.state.phase === 'ready' && controller.state.answer?.type === 'code') await clipboard.writeText(controller.state.answer.code); });
+  handle('assistant:copy', false, async requestId => {
+    const parsed = copyRequestSchema.safeParse({ requestId }); const state = controller.state;
+    if (!parsed.success || state.requestId !== parsed.data.requestId || state.phase !== 'ready' || state.answer?.type !== 'code') throw new AssistantError('copy', 'Answer changed. Try copying again');
+    await clipboard.writeText(state.answer.code);
+  });
   ipcMain.on('assistant:subscribe', event => { if (authorized(event)) event.sender.send('assistant:state', visibleState()); });
   ipcMain.on('widget:resize', (event, width: unknown, height: unknown) => {
     if (!authorized(event) || event.sender.id !== widgetWindow?.webContents.id) return;
@@ -148,12 +152,15 @@ async function start(): Promise<void> {
   screen.on('display-metrics-changed', positionWidget);
   const icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGElEQVQ4T2NkqLf4z0ABYBw1gGE0DBgGAgBxpR4xBXNK1AAAAABJRU5ErkJggg==');
   tray = new Tray(icon); tray.setToolTip('AI Quick Answer'); tray.on('double-click', openSettings); updateTray();
-  try { bridge = await startBridge(controller, () => pairingToken, openSettings); bridgeStatus = `Listening on 127.0.0.1:${PORT}`; }
+  try { bridge = await startBridge(controller, () => pairingToken, openSettings, PORT, async code => { await clipboard.writeText(code); }); bridgeStatus = `Listening on 127.0.0.1:${PORT}`; }
   catch { bridgeStatus = `Unavailable: port ${PORT} is in use. Restart after closing the conflicting application`; }
   hotkey = new PassiveHotkey(() => { if (BrowserWindow.getFocusedWindow() === settingsWindow) return; void controller.trigger(); });
   hotkey.configure(config.shortcut);
   try { hotkey.start(); hotkeyStatus = 'Passive listener active (normal paste preserved)'; }
   catch { hotkeyStatus = 'Unavailable. Restart the app and check keyboard permissions'; }
+  const resetKeys = () => hotkey?.reset();
+  powerMonitor.on('lock-screen', resetKeys); powerMonitor.on('unlock-screen', resetKeys);
+  powerMonitor.on('suspend', resetKeys); powerMonitor.on('resume', resetKeys);
   if (!storage.hasSecret(config.provider) || smoke) openSettings();
 }
 if (!app.requestSingleInstanceLock()) app.quit();

@@ -1,6 +1,6 @@
 # AI Quick Answer
 
-A Windows tray assistant and Chromium Manifest V3 extension. Select text, press **Ctrl+C**, then **Ctrl+V**. Normal paste continues; the companion also reads the clipboard and requests an AI answer. Nothing runs automatically on copy alone.
+A Windows tray assistant and Chromium Manifest V3 extension. Copy text or an image question, then press **Ctrl+V**. Normal paste continues; the companion also reads the clipboard and requests an AI answer. Nothing runs automatically on copy alone.
 
 - MCQs show the selected option for five seconds by default.
 - Descriptive answers remain behind a small dot until hovered or focused.
@@ -17,7 +17,7 @@ npm run dev
 
 The first launch opens Settings. Closing Settings leaves the assistant in the system tray. Double-click its tray icon to reopen Settings; use **Quit** to exit.
 
-For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.4.exe`. The portable EXE is also produced in `release/`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
+For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.5.exe`. The portable EXE is also produced in `release/`. The browser extension is packaged separately in `release/extension`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
 
 ## Providers
 
@@ -35,7 +35,17 @@ Cookie: __Secure-1PSID=your-session-value; __Secure-1PSIDTS=your-session-timesta
 
 Gemini Web uses an **unofficial, changeable web protocol**, with temporary-chat requests. Google may expire sessions, restrict access, or change the request format. It is not Google's supported Gemini Developer API. Protocol failures produce a small error and do not fall back to another provider or unauthenticated access. The adapter's wire format was checked against the [upstream Gemini web client](https://github.com/Expert-Vision-Software/gemini-web-sdk).
 
-Provider validation checks authentication and never sends clipboard text. Keys and cookies are not returned to either renderer or extension after saving. Switch providers in the shared desktop Settings.
+Provider validation checks authentication and never sends clipboard text or images. Keys and cookies are not returned to either renderer or extension after saving. Switch providers in the shared desktop Settings.
+
+## Image questions
+
+Copy an image from your browser (right-click → **Copy image**) or capture a screenshot with **Win+Shift+S**, then press **Ctrl+V**. Alternatively, right-click the assistant's tray icon and select **Answer image file…** to choose a PNG, JPEG or WebP. Copying a file in Explorer copies a file reference; use the tray picker for image files.
+
+Images use the same answer preferences: the model detects MCQs, descriptive questions and coding tasks directly from the image. MCQs expire at the selected duration even while hovered. Text/code can be hovered repeatedly until × dismissal. Existing settings are unchanged.
+
+Groq image requests use `qwen/qwen3.8-27b` with inline image data and JSON mode, as described in [Groq's vision documentation](https://console.groq.com/docs/vision). Text requests continue using `openai/gpt-oss-120b`. Your Groq project must permit the vision model. Gemini Web uploads the image to Google's content-push service and attaches its returned reference to a temporary question. The [upstream web client](https://github.com/Expert-Vision-Software/gemini-web-sdk/blob/main/src/utils/upload.js) documents this unofficial upload format.
+
+Inputs are decoded locally, resized to at most 3,072 pixels on the longest side and approximately four megapixels, then encoded as PNG or JPEG of at most 4 MB. Original files may be at most 20 MB and 40 megapixels. Images go only to the selected provider when explicitly triggered, stay out of answer state and extension messages, and are not saved locally. Crop to the relevant question for best readability. Image questions have a 95-second overall timeout to include upload; text questions retain the 65-second timeout.
 
 ## Chromium extension
 
@@ -68,7 +78,7 @@ The extension works on ordinary HTTP/HTTPS pages. Chromium internal pages, the w
 
 **Verify the actual sharing preview:** this is capture exclusion, not a universal guarantee of invisibility. Microsoft [does not guarantee protection against every capture method](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity), and Electron notes that the change takes effect on the next desktop composition. Hardware capture, cameras and capture methods that ignore affinity can still see the windows. This feature does not conceal the process in Task Manager or protect other applications.
 
-The clipboard is read only on the configured shortcut or an explicit Answer clipboard action. Empty/non-text contents do nothing. Text is normalized, bounded to 20,000 characters and sent only to the selected provider over HTTPS. The clipboard is changed only by **Copy code**. Never trigger with secrets or private material you do not want that provider to receive.
+The clipboard is read only on the configured shortcut or an explicit Answer clipboard action. Empty/unsupported contents do nothing. Image content takes precedence over an accompanying URL. Text is normalized, bounded to 20,000 characters and sent only to the selected provider over HTTPS. The clipboard is changed only by **Copy code**. Never trigger with secrets or private material you do not want that provider to receive.
 
 Answers/questions are kept in memory only and replaced by the next valid request or settings change. There is no local history or content cache. Provider retention policies still apply. Code is treated as text and is never executed. All model responses pass strict JSON/type/language/option validation; invalid output gets one controlled format retry.
 

@@ -1,4 +1,4 @@
-import { AssistantError, type AIProvider } from '../core';
+import { AssistantError, sanitizeQuestion, type AIProvider, type QuestionImage } from '../core';
 import { parseCookies, type Config } from '../schemas';
 import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
@@ -13,6 +13,7 @@ export const geminiTransport: Transport = (input, init) => {
   return fetch(input, options);
 };
 export const GROQ_MODEL = 'openai/gpt-oss-120b';
+export const GROQ_VISION_MODEL = 'qwen/qwen3.8-27b';
 export async function readBounded(response: Response, limit = 2_000_000): Promise<string> {
   if (!response.body) return '';
   const reader = response.body.getReader();
@@ -87,11 +88,13 @@ export class GroqProvider implements AIProvider {
     if (!raw || typeof raw !== 'object' || !('data' in raw) || !Array.isArray(raw.data)) throw new AssistantError('response', 'Groq returned an invalid model list');
     if (!raw.data.some(model => model && typeof model === 'object' && model.id === GROQ_MODEL)) throw new AssistantError('model', 'Groq model ' + GROQ_MODEL + ' is unavailable for this account');
   }
-  async generate(system: string, question: string, signal: AbortSignal): Promise<string> {
+  async generate(system: string, question: string, signal: AbortSignal, image?: QuestionImage): Promise<string> {
+    if (image) sanitizeQuestion({ image });
+    const userContent = image ? [{ type: 'text', text: question }, { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${Buffer.from(image.data).toString('base64')}` } }] : question;
     const res = await request(this.transport, 'https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST', signal,
       headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: GROQ_MODEL, reasoning_effort: 'low', temperature: 0.1, max_completion_tokens: 4096, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: system }, { role: 'user', content: question }] })
+      body: JSON.stringify({ model: image ? GROQ_VISION_MODEL : GROQ_MODEL, reasoning_effort: image ? 'none' : 'low', temperature: 0.1, max_completion_tokens: 4096, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: system }, { role: 'user', content: userContent }] })
     }, 'groq');
     let raw: unknown;
     try { raw = JSON.parse(await readBounded(res)); } catch { throw new AssistantError('response', 'Groq returned an invalid response'); }
@@ -130,7 +133,7 @@ export function parseGeminiResponse(raw: string): string {
 }
 export class GeminiWebProvider implements AIProvider {
   private readonly cookies: Record<string, string>;
-  private session?: { token: string; build?: string; id?: string; expires: number };
+  private session?: { token: string; build?: string; id?: string; pushId: string; expires: number };
   private requestId = 10000;
   constructor(sessionInput: string, private readonly transport: Transport = geminiTransport) { this.cookies = parseCookies(sessionInput); }
   private headers(): Record<string, string> {
@@ -148,13 +151,29 @@ export class GeminiWebProvider implements AIProvider {
     const html = await readBounded(res, 8_000_000);
     const token = /"SNlM0e"\s*:\s*"([^"\r\n]+)"/.exec(html)?.[1];
     if (!token) throw new AssistantError('auth', 'Gemini session expired');
-    this.session = { token, build: /"cfb2h"\s*:\s*"([^"\r\n]+)"/.exec(html)?.[1], id: /"FdrFJe"\s*:\s*"([^"\r\n]+)"/.exec(html)?.[1], expires: Date.now() + 10 * 60 * 1000 };
+    this.session = { token, build: /"cfb2h"\s*:\s*"([^"\r\n]+)"/.exec(html)?.[1], id: /"FdrFJe"\s*:\s*"([^"\r\n]+)"/.exec(html)?.[1], pushId: /"qKIAYe"\s*:\s*"([^"\r\n]+)"/.exec(html)?.[1] ?? 'feeds/mcudyrk2a4khkz', expires: Date.now() + 10 * 60 * 1000 };
   }
-  async generate(system: string, question: string, signal: AbortSignal): Promise<string> {
+  async generate(system: string, question: string, signal: AbortSignal, image?: QuestionImage): Promise<string> {
+    if (image) sanitizeQuestion({ image });
     if (!this.session || this.session.expires < Date.now()) await this.validate(signal);
     const session = this.session!;
+    try {
+    let fileData: unknown = null;
+    if (image) {
+      const name = image.mimeType === 'image/png' ? 'question.png' : 'question.jpg';
+      const form = new FormData();
+      form.append('file', new Blob([new Uint8Array(image.data)], { type: image.mimeType }), name);
+      const upload = await request(this.transport, 'https://content-push.googleapis.com/upload', {
+        method: 'POST', signal, body: form,
+        headers: { ...this.headers(), Origin: 'https://gemini.google.com', Referer: 'https://gemini.google.com/', 'X-Tenant-Id': 'bard-storage', 'Push-ID': session.pushId }
+      }, 'gemini');
+      this.updateCookies(upload);
+      const reference = (await readBounded(upload, 8192)).trim();
+      if (!reference || /[\s<>]/.test(reference) || !reference.startsWith('/contrib_service/')) throw new AssistantError('image', 'Gemini image upload failed. Try again');
+      fileData = [[[reference], name]];
+    }
     const payload: unknown[] = Array.from({ length: 81 }, () => null);
-    payload[0] = [`${system}\n\nQuestion:\n${question}`, 0, null, null, null, null, 0];
+    payload[0] = [`${system}\n\nQuestion:\n${question}`, 0, null, fileData, null, null, 0];
     payload[1] = ['en']; payload[2] = ['', '', '', null, null, null, null, null, null, ''];
     payload[6] = [1]; payload[7] = 1; payload[10] = 1; payload[11] = 0;
     payload[17] = [[0]]; payload[18] = 0; payload[27] = 1; payload[30] = [4];
@@ -162,7 +181,6 @@ export class GeminiWebProvider implements AIProvider {
     const params = new URLSearchParams({ hl: 'en', rt: 'c', _reqid: String(this.requestId += 100000) });
     if (session.build) params.set('bl', session.build);
     if (session.id) params.set('f.sid', session.id);
-    try {
       const res = await request(this.transport, `https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?${params}`, {
         method: 'POST', signal,
         headers: { ...this.headers(), 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', Origin: 'https://gemini.google.com', Referer: 'https://gemini.google.com/', 'x-same-domain': '1', 'x-goog-ext-525005358-jspb': JSON.stringify([payload[59], 1]) },

@@ -13,6 +13,7 @@ import { Storage } from './storage';
 import { Controller } from './controller';
 import { startBridge } from './bridge';
 import { PassiveHotkey } from './hotkey';
+import { readClipboardQuestion, readImageFile } from './images';
 
 const smoke = process.argv.includes('--smoke');
 if (smoke) app.setPath('userData', process.env.AI_BOT_SMOKE_DATA ?? join(app.getPath('temp'), 'ai-quick-answer-smoke'));
@@ -92,11 +93,16 @@ function updateTray(): void {
     { label: `Shortcut: ${config.shortcut}`, enabled: false },
     { label: 'Settings', click: openSettings },
     { label: 'Answer clipboard', click: () => { void controller.trigger(); } },
+    { label: 'Answer image file…', click: () => { void answerImageFile(); } },
     { label: 'Screen sharing is active', type: 'checkbox', checked: config.sharing, click: item => {
       config = { ...config, sharing: item.checked }; storage.saveConfig(config); controller.configure(config); updateTray();
     } },
     { type: 'separator' }, { label: 'Quit', click: () => app.quit() }
   ]));
+}
+async function answerImageFile(): Promise<void> {
+  const result = await dialog.showOpenDialog({ title: 'Choose an image question', properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+  if (!result.canceled && result.filePaths[0]) await controller.trigger(() => readImageFile(result.filePaths[0]!));
 }
 function authorized(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent, settingsOnly = false): boolean {
   const id = event.sender.id;
@@ -169,7 +175,7 @@ async function start(): Promise<void> {
   config = storage.loadConfig();
   pairingToken = storage.getSecret('pairing') ?? randomBytes(32).toString('hex');
   storage.setSecret('pairing', pairingToken);
-  controller = new Controller(config, () => clipboard.readText(), providerFor, publish);
+  controller = new Controller(config, readClipboardQuestion, providerFor, publish);
   registerIPC();
   widgetWindow = new BrowserWindow({ width: 18, height: 18, frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true, show: false, hasShadow: false, title: 'AI Quick Answer widget', webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false, devTools: !app.isPackaged } });
   widgetWindow.setAlwaysOnTop(true, 'floating');

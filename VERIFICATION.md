@@ -3,7 +3,7 @@
 Verified on Windows on 8 October 2026:
 
 - Lint and strict TypeScript checking pass.
-- 88 unit, provider, integration, keyboard and widget tests pass, including cookie formats, current Groq model validation, safe HTTP errors, controlled JSON-generation retries and actual HTTP responses with large cookie headers.
+- 91 unit, provider, integration, keyboard and widget tests pass, including cookie formats, current Groq model validation, safe HTTP errors, controlled JSON-generation retries, actual HTTP responses with large cookie headers and capture-protection configuration migration/browser redaction.
 - Both Electron and Chromium production builds succeed.
 - NSIS installer and portable EXE packaging succeeds without native compilation.
 - The packaged application (`release/win-unpacked/AI Quick Answer.exe`) launches with its actual ASAR bundle and N-API keyboard binary.
@@ -17,6 +17,10 @@ Version 1.0.1 was also checked against **live Groq** using the user's locally sa
 Version 1.0.2 was checked against **live Gemini** using the explicitly supplied cookie export held only in memory. The old transport failed with UND_ERR_HEADERS_OVERFLOW; the bounded 64 KiB Gemini dispatcher successfully validated the session and returned descriptive, MCQ and Python code answers through the actual answer pipeline. No cookie values, session tokens or response bodies were logged or committed.
 
 The packaged 1.0.2 Settings screen also successfully validated both the supplied JSON export and its equivalent Cookie header against live Gemini, using an isolated profile without saving the credential. The packaged Ctrl+V and Chromium extension smoke test passed again after this fix.
+
+Version 1.0.3 passed the packaged smoke suite with the new Windows capture exclusion enabled. A separate process queried the actual native HWNDs using GetWindowDisplayAffinity: both Settings and widget returned 0x11 (WDA_EXCLUDEFROMCAPTURE), both returned 0x00 when disabled, and both returned 0x11 after re-enabling. During sharing mode the protected desktop remained visible and the Chromium overlay was hidden. The existing hide-both mode, actual OS Ctrl+V, all answer modes, exact code copying and MV3 pairing also passed. The extension archive contains manifest version 1.0.1.
+
+These checks verify the native Windows affinity and application behavior, not every meeting or recording application's capture path. Zoom, Meet, Teams and OBS receiver previews were not individually tested. Check the actual sharing preview before relying on exclusion; Microsoft does not guarantee it against all capture methods.
 
 Gemini Web is an unofficial session protocol and can change independently of this application. Windows build artifacts are unsigned; supply your own signing certificate for a signed distribution.
 

@@ -13,7 +13,7 @@ export interface DesktopAPI {
   rotatePairing(): Promise<string>;
   trigger(): Promise<void>;
   copyCode(): Promise<void>;
-  resizeWidget(expanded: boolean): void;
+  resizeWidget(width: number, height: number): void;
   onState(callback: (state: AssistantState) => void): () => void;
 }
 declare global { interface Window { assistant: DesktopAPI } }

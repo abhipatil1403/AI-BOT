@@ -44,6 +44,7 @@ function providerFor(current: Config): AIProvider {
 }
 function secureWindow(window: BrowserWindow, file: string): void {
   applyCaptureProtection(window);
+  window.on('ready-to-show', () => applyCaptureProtection(window));
   window.on('show', () => applyCaptureProtection(window));
   const url = pathToFileURL(join(views, file)).href;
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -156,7 +157,9 @@ function registerIPC(): void {
     widgetWindow.setSize(width, height); positionWidget();
     const state = controller.state;
     const expired = state.phase === 'ready' && state.answer?.type === 'mcq' && config.duration > 0 && Date.now() >= state.updatedAt + config.duration * 1000;
-    if (visible && state.phase !== 'idle' && !expired && !(config.visibility === 'sharing' && config.sharing)) widgetWindow.showInactive();
+    if (visible && state.phase !== 'idle' && !expired && !(config.visibility === 'sharing' && config.sharing)) {
+      applyCaptureProtection(widgetWindow); widgetWindow.showInactive();
+    }
     else widgetWindow.hide();
   });
 }

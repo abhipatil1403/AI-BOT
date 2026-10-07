@@ -43,14 +43,14 @@ try {
         const data = await window.assistant.settings();
         await window.assistant.saveConfig({ ...data.config, captureProtection: enabled });
       }, enabled);
-      const handles = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => {
+      const handles = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.getTitle() === 'AI Quick Answer · Settings').map(window => {
         const handle = window.getNativeWindowHandle();
         return handle.length === 8 ? handle.readBigUInt64LE().toString() : handle.readUInt32LE().toString();
       }));
       const result = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', resolve('scripts/query-display-affinity.ps1'), '-Handles', handles.join(',')], { windowsHide: true, timeout: 30000 });
-      assert.deepEqual(JSON.parse(result.stdout.trim()), handles.map(() => enabled ? 0x11 : 0), 'Actual Win32 affinity on both desktop windows');
+      assert.deepEqual(JSON.parse(result.stdout.trim()), handles.map(() => enabled ? 0x11 : 0), 'Actual Win32 affinity on the visible Settings window');
     }
-    console.log('PASS: actual Windows WDA_EXCLUDEFROMCAPTURE on Settings and widget; toggle restores WDA_NONE');
+    console.log('PASS: actual Windows capture exclusion on Settings; toggle restores WDA_NONE');
   }
   originalClipboard = await desktop.evaluate(({ clipboard }) => clipboard.readText());
 
@@ -149,6 +149,14 @@ try {
   });
   await expect(widget.locator('.panel')).toBeHidden();
   await widget.locator('.dot').hover(); await widget.locator('.answer').filter({ hasText: 'Plants use light' }).waitFor();
+  if (process.platform === 'win32') {
+    const handles = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.getTitle() !== 'AI Quick Answer smoke target').map(window => {
+      const handle = window.getNativeWindowHandle(); return handle.length === 8 ? handle.readBigUInt64LE().toString() : handle.readUInt32LE().toString();
+    }));
+    const result = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', resolve('scripts/query-display-affinity.ps1'), '-Handles', handles.join(',')], { windowsHide: true, timeout: 30000 });
+    assert.deepEqual(JSON.parse(result.stdout.trim()), handles.map(() => 0x11), 'Actual exclusion on active widget and Settings');
+    console.log('PASS: active compact widget and Settings both have native WDA_EXCLUDEFROMCAPTURE');
+  }
   assert.equal(await desktop.evaluate(({ clipboard }) => clipboard.readText()), text, 'Hotkey never changes clipboard');
   await expect.poll(() => widget.evaluate(() => window.innerWidth)).toBe(226);
   await expect.poll(() => widget.evaluate(() => {

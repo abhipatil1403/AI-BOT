@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 
 type Transport = typeof fetch;
+export const GROQ_MODEL = 'openai/gpt-oss-120b';
 export async function readBounded(response: Response, limit = 2_000_000): Promise<string> {
   if (!response.body) return '';
   const reader = response.body.getReader();
@@ -31,9 +32,16 @@ export async function request(transport: Transport, url: string, init: RequestIn
       throw new AssistantError('network', 'AI connection failed');
     }
     if (res.ok) return res;
-    await res.body?.cancel();
-    if (res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400)) throw new AssistantError('auth', provider === 'gemini' ? 'Gemini session expired' : 'Groq API key is invalid');
+    if (res.status === 401 || (res.status >= 300 && res.status < 400)) {
+      await res.body?.cancel();
+      throw new AssistantError('auth', provider === 'gemini' ? 'Gemini session expired' : 'Groq API key is invalid');
+    }
+    if (res.status === 403) {
+      await res.body?.cancel();
+      throw new AssistantError(provider === 'gemini' ? 'auth' : 'permission', provider === 'gemini' ? 'Gemini session expired' : 'Groq access denied (HTTP 403). Check project and model permissions');
+    }
     if (res.status === 429 || res.status >= 500) {
+      await res.body?.cancel();
       const retryAfter = res.headers.get('retry-after');
       const seconds = retryAfter === null ? 0.5 : Number(retryAfter);
       if (attempt === 0 && Number.isFinite(seconds) && seconds <= 3) {
@@ -42,7 +50,20 @@ export async function request(transport: Transport, url: string, init: RequestIn
       }
       throw new AssistantError(res.status === 429 ? 'rate' : 'api', res.status === 429 ? 'Rate limit reached. Try again later' : 'AI provider is unavailable');
     }
-    throw new AssistantError('api', 'AI provider rejected the request');
+    let code: unknown;
+    if (provider === 'groq') {
+      // Error messages can echo user input or credentials. Map known codes
+      // from a bounded error body to our own messages.
+      try {
+        const raw: unknown = JSON.parse(await readBounded(res, 16384));
+        if (raw && typeof raw === 'object' && 'error' in raw && raw.error && typeof raw.error === 'object' && 'code' in raw.error) code = raw.error.code;
+      } catch { /* Use the status when the error body is unavailable. */ }
+    } else await res.body?.cancel();
+    if (provider === 'groq' && ['model_decommissioned', 'model_not_found', 'model_not_available', 'model_permission_blocked_org', 'model_permission_blocked_project'].includes(String(code))) throw new AssistantError('model', 'Groq model unavailable (HTTP ' + res.status + '). Update the app or check model permissions');
+    if (provider === 'groq' && code === 'json_validate_failed') throw new AssistantError('response', 'Groq could not generate valid JSON. Try again');
+    if (res.status === 413 || code === 'context_length_exceeded') throw new AssistantError('size', (provider === 'groq' ? 'Groq' : 'Gemini') + ' request is too large. Copy a shorter question');
+    if (provider === 'groq' && res.status === 402) throw new AssistantError('quota', 'Groq billing or quota limit reached (HTTP 402)');
+    throw new AssistantError('api', (provider === 'groq' ? 'Groq' : 'Gemini') + ' rejected the request (HTTP ' + res.status + '). Check provider settings');
   }
   throw new AssistantError('network', 'AI connection failed');
 }
@@ -50,13 +71,16 @@ export class GroqProvider implements AIProvider {
   constructor(private readonly key: string, private readonly transport: Transport = fetch) {}
   async validate(signal: AbortSignal): Promise<void> {
     const res = await request(this.transport, 'https://api.groq.com/openai/v1/models', { headers: { Authorization: `Bearer ${this.key}` }, signal }, 'groq');
-    await res.body?.cancel();
+    let raw: unknown;
+    try { raw = JSON.parse(await readBounded(res)); } catch { throw new AssistantError('response', 'Groq returned an invalid model list'); }
+    if (!raw || typeof raw !== 'object' || !('data' in raw) || !Array.isArray(raw.data)) throw new AssistantError('response', 'Groq returned an invalid model list');
+    if (!raw.data.some(model => model && typeof model === 'object' && model.id === GROQ_MODEL)) throw new AssistantError('model', 'Groq model ' + GROQ_MODEL + ' is unavailable for this account');
   }
   async generate(system: string, question: string, signal: AbortSignal): Promise<string> {
     const res = await request(this.transport, 'https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST', signal,
       headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', temperature: 0.1, max_completion_tokens: 4096, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: system }, { role: 'user', content: question }] })
+      body: JSON.stringify({ model: GROQ_MODEL, reasoning_effort: 'low', temperature: 0.1, max_completion_tokens: 4096, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: system }, { role: 'user', content: question }] })
     }, 'groq');
     let raw: unknown;
     try { raw = JSON.parse(await readBounded(res)); } catch { throw new AssistantError('response', 'Groq returned an invalid response'); }

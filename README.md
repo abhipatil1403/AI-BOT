@@ -17,11 +17,11 @@ npm run dev
 
 The first launch opens Settings. Closing Settings leaves the assistant in the system tray. Double-click its tray icon to reopen Settings; use **Quit** to exit.
 
-For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.0.exe`. The portable EXE is also produced in `release/`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
+For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.1.exe`. The portable EXE is also produced in `release/`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
 
 ## Providers
 
-**Groq:** Obtain an API key from [Groq Console](https://console.groq.com/keys). Select Groq, enter the key, validate the connection, and save the credential. Requests use Groq's HTTPS chat-completions API with `llama-3.3-70b-versatile` and JSON output.
+**Groq:** Obtain an API key from [Groq Console](https://console.groq.com/keys). Select Groq, enter the key, validate the connection, and save the credential. Requests use Groq's HTTPS chat-completions API with `openai/gpt-oss-120b`, low reasoning effort and JSON output. Validation checks the active model list as well as authentication. The old `llama-3.3-70b-versatile` model was [retired for free/developer accounts on August 16, 2026](https://console.groq.com/docs/deprecations); version 1.0.1 migrates to the supported replacement.
 
 **Gemini Web:** Select Gemini Web and explicitly supply cookies from your own signed-in Gemini session. Accepted formats are a JSON name/value object, an exported JSON array of cookie objects (`name`, `value`, optional `domain`, other browser metadata allowed), or a single Cookie header string (`name=value; name=value`, optionally prefixed with `Cookie:`). Every format must contain `__Secure-1PSID`; supply other relevant Google session cookies as needed. Paste the complete input locally in Settings, validate, then save. Truncated JSON, duplicate header names, other HTTP headers and unsafe values are rejected. The app never opens browser cookie databases, extracts browser cookies, or obtains your initial session automatically. Session responses may update cookies in memory only. Re-enter cookies if the session expires.
 
@@ -106,7 +106,8 @@ npm run package
 - **Desktop companion is not running:** start it and inspect the tray. Check the bridge diagnostics; another process may own port 47831.
 - **Pairing invalid:** enter the current desktop token again, especially after a token rotation.
 - **No response to Ctrl+V:** confirm text is copied, the tray app is running and the passive listener diagnostics report active. Shortcuts are ignored while desktop Settings has focus so pasting credentials there is safe. Some elevated/secure Windows surfaces restrict hooks; use the tray/popup action. Check that sharing mode isn't hiding the widget.
-- **Groq key invalid / rate limit:** validate your saved key, check your account quota, and retry later.
+- **Groq model unavailable / HTTP 400:** install version 1.0.1 or later; version 1.0.0 requests a retired model. Validate the saved key again. Check project model permissions if access is denied. Provider errors include safe HTTP status details rather than raw response bodies.
+- **Groq key invalid / rate limit:** validate your saved key, check your account quota, and retry later. A failed JSON generation gets one strict format retry; authentication, model-access and other request errors do not get format retries.
 - **Gemini session expired / web protocol unavailable:** explicitly replace your own session cookies and validate. If Google has changed its protocol, an adapter update may be required; Groq remains an independent option.
 - **Invalid AI response:** a strict retry is attempted once. Try a clearer question if the model still returns malformed data.
 - **Extension dot missing:** reload the page after installing the extension and use a regular HTTP/HTTPS page. Privacy mode intentionally hides it while sharing is active.

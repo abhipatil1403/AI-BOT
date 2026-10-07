@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { answerQuestion, classify, HotkeyGate, parseAnswer, promptFor, sanitizeInput, type AIProvider } from '../packages/core';
+import { answerQuestion, AssistantError, classify, HotkeyGate, parseAnswer, promptFor, sanitizeInput, type AIProvider } from '../packages/core';
 import { configSchema, defaultConfig, parseCookies } from '../packages/schemas';
 
 describe('clipboard pipeline', () => {
@@ -48,6 +48,16 @@ describe('response validation and prompting', () => {
     const generate = vi.fn().mockResolvedValue('invalid');
     await expect(answerQuestion('Question?', defaultConfig, { generate, validate: vi.fn() }, new AbortController().signal)).rejects.toThrow('invalid response');
     expect(generate).toHaveBeenCalledTimes(2);
+  });
+  it('retries a provider JSON-generation failure once using the strict prompt', async () => {
+    const generate = vi.fn().mockRejectedValueOnce(new AssistantError('response', 'Groq could not generate valid JSON')).mockResolvedValueOnce('{"type":"descriptive","answer":"Paris"}');
+    await expect(answerQuestion('Capital of France?', defaultConfig, { generate, validate: vi.fn() }, new AbortController().signal)).resolves.toEqual({ type: 'descriptive', answer: 'Paris' });
+    expect(generate).toHaveBeenCalledTimes(2); expect(generate.mock.calls[1]?.[0]).toContain('CRITICAL');
+  });
+  it('does not format-retry authentication or retired-model errors', async () => {
+    const generate = vi.fn().mockRejectedValue(new AssistantError('model', 'Groq model unavailable'));
+    await expect(answerQuestion('Question?', defaultConfig, { generate, validate: vi.fn() }, new AbortController().signal)).rejects.toThrow('model unavailable');
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 });
 describe('cookie and settings safety', () => {

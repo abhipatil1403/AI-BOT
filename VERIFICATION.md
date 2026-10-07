@@ -3,7 +3,7 @@
 Verified on Windows on 8 October 2026:
 
 - Lint and strict TypeScript checking pass.
-- 75 unit, provider, integration, keyboard and widget tests pass, including exported cookie JSON and Cookie header validation.
+- 86 unit, provider, integration, keyboard and widget tests pass, including cookie formats, current Groq model validation, safe HTTP errors and controlled JSON-generation retries.
 - Both Electron and Chromium production builds succeed.
 - NSIS installer and portable EXE packaging succeeds without native compilation.
 - The packaged application (`release/win-unpacked/AI Quick Answer.exe`) launches with its actual ASAR bundle and N-API keyboard binary.
@@ -12,7 +12,9 @@ Verified on Windows on 8 October 2026:
 
 The smoke runner installs synthetic HTTP fixtures into the test process externally. Production provider code, credential storage, windows, OS clipboard/hotkey, and extension communication are real. No mock responses or mock provider branches exist in production bundles. Native Windows input was additionally verified using the computer-use tools against the test window.
 
-Authenticated live Groq and Gemini requests have **not** been tested: no real credentials were supplied. Enter your credentials locally in desktop Settings, validate, then trigger each answer mode. Gemini Web is an unofficial session protocol and can change independently of this application. Windows build artifacts are unsigned; supply your own signing certificate for a signed distribution.
+Version 1.0.1 was also checked against **live Groq** using the user's locally saved encrypted credential: the legacy model returned HTTP 404; authentication/model validation and descriptive, MCQ and Python code answers succeeded with `openai/gpt-oss-120b`. These checks used synthetic questions and never logged or committed the credential, provider error bodies or private clipboard contents.
+
+Authenticated live Gemini requests remain unverified. Enter complete cookies locally in desktop Settings, validate, then trigger each answer mode. Gemini Web is an unofficial session protocol and can change independently of this application. Windows build artifacts are unsigned; supply your own signing certificate for a signed distribution.
 
 Reproduce:
 

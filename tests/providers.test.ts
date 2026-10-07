@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createProvider, GeminiWebProvider, GroqProvider, parseGeminiResponse, readBounded, request } from '../packages/providers';
+import { createProvider, GeminiWebProvider, GROQ_MODEL, GroqProvider, parseGeminiResponse, readBounded, request } from '../packages/providers';
 const signal = () => new AbortController().signal;
 const output = JSON.stringify({ type: 'descriptive', answer: 'Paris' });
 const geminiFrame = (text: string) => JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [['rcid', [text]]]])]]);
@@ -9,9 +9,24 @@ describe('Groq adapter', () => {
     await expect(new GroqProvider('synthetic-test-key', transport).generate('system', 'question', signal())).resolves.toBe(output);
     const call = transport.mock.calls[0]!; expect(call[0]).toBe('https://api.groq.com/openai/v1/chat/completions');
     const init = call[1]!; expect((init.headers as Record<string, string>).Authorization).toBe('Bearer synthetic-test-key');
-    expect(JSON.parse(String(init.body)).response_format).toEqual({ type: 'json_object' });
+    const body = JSON.parse(String(init.body));
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.model).toBe('openai/gpt-oss-120b'); expect(body.reasoning_effort).toBe('low');
   });
-  it('validates without sending clipboard content', async () => { const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}')); await new GroqProvider('synthetic-test-key', transport).validate(signal()); expect(transport.mock.calls[0]?.[0]).toContain('/models'); });
+  it('validates authentication and the current model without sending clipboard content', async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: GROQ_MODEL }] })));
+    await new GroqProvider('synthetic-test-key', transport).validate(signal());
+    expect(transport.mock.calls[0]?.[0]).toContain('/models');
+    expect(transport.mock.calls[0]?.[1]?.body).toBeUndefined();
+  });
+  it('does not validate an account that only exposes a retired model', async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response('{"data":[{"id":"llama-3.3-70b-versatile"}]}'));
+    await expect(new GroqProvider('synthetic-test-key', transport).validate(signal())).rejects.toThrow('unavailable for this account');
+  });
+  it('rejects invalid model-list responses', async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'));
+    await expect(new GroqProvider('synthetic-test-key', transport).validate(signal())).rejects.toThrow('invalid model list');
+  });
   it('handles invalid keys and truncated answers', async () => {
     const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 401 }));
     await expect(new GroqProvider('synthetic-test-key', transport).validate(signal())).rejects.toThrow('key is invalid');
@@ -53,6 +68,23 @@ describe('Gemini web adapter', () => {
   it('switches providers explicitly', () => { expect(createProvider('groq', 'test')).toBeInstanceOf(GroqProvider); expect(createProvider('gemini', '{"__Secure-1PSID":"synthetic-test-cookie"}')).toBeInstanceOf(GeminiWebProvider); });
 });
 describe('bounded HTTP transport', () => {
+  it.each([
+    [400, 'model_decommissioned', 'model unavailable'],
+    [404, 'model_not_found', 'model unavailable'],
+    [400, 'json_validate_failed', 'valid JSON'],
+    [403, 'model_permission_blocked_project', 'permissions'],
+    [413, 'request_too_large', 'shorter question'],
+    [402, 'insufficient_quota', 'quota limit']
+  ])('maps HTTP %s / %s to a safe useful error', async (status, code, message) => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ error: { code, message: 'DO_NOT_LEAK_USER_CONTENT', failed_generation: 'DO_NOT_LEAK_USER_CONTENT' } }), { status }));
+    await expect(request(transport, 'https://api.groq.com', {}, 'groq')).rejects.toThrow(message);
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+  it('includes the status without exposing an unknown provider error body', async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response('{"error":{"code":"unknown","message":"DO_NOT_LEAK_USER_CONTENT"}}', { status: 400 }));
+    const error = await request(transport, 'https://api.groq.com', {}, 'groq').catch(error => error as Error);
+    expect((error as Error).message).toContain('HTTP 400'); expect((error as Error).message).not.toContain('DO_NOT_LEAK_USER_CONTENT');
+  });
   it('retries transient failures once', async () => {
     const transport = vi.fn<typeof fetch>().mockRejectedValueOnce(new Error('socket')).mockResolvedValue(new Response('{}'));
     await expect(request(transport, 'https://api.groq.com', { signal: signal() }, 'groq')).resolves.toBeInstanceOf(Response); expect(transport).toHaveBeenCalledTimes(2);

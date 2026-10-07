@@ -50,9 +50,12 @@ export async function answerQuestion(raw: string, config: Config, provider: AIPr
   const text = sanitizeInput(raw);
   const type = classify(text);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const output = await provider.generate(promptFor(type, config, attempt > 0), text, signal);
-    try { return parseAnswer(output, type, config, text); }
-    catch (error) { if (attempt === 1) throw error; }
+    try {
+      const output = await provider.generate(promptFor(type, config, attempt > 0), text, signal);
+      return parseAnswer(output, type, config, text);
+    } catch (error) {
+      if (!(error instanceof AssistantError) || error.code !== 'response' || attempt === 1) throw error;
+    }
   }
   throw new AssistantError('response', 'AI returned an invalid response');
 }

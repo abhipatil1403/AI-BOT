@@ -1,6 +1,6 @@
 {
   "name": "ai-quick-answer-assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Clipboard AI assistant with an Electron companion and Chromium extension",
   "author": "Abhi Patil",
@@ -21,7 +21,11 @@
     "uiohook-napi": "1.5.5",
     "zod": "^3.25.76"
   },
-  "overrides": { "app-builder-lib": { "@electron/get": "^5.1.0" } },
+  "overrides": {
+    "app-builder-lib": {
+      "@electron/get": "^5.1.0"
+    }
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
     "@playwright/test": "^1.56.0",

@@ -40,7 +40,7 @@ try {
     globalThis.fetch = async (url, init) => {
       const address = String(url);
       if (address.startsWith('http://127.0.0.1:')) return actualFetch(url, init);
-      if (address === 'https://api.groq.com/openai/v1/models') return new Response('{}');
+      if (address === 'https://api.groq.com/openai/v1/models') return new Response('{"data":[{"id":"openai/gpt-oss-120b"}]}');
       if (address === 'https://gemini.google.com/app') return new Response('"SNlM0e":"synthetic-token","cfb2h":"synthetic-build","FdrFJe":"synthetic-session"');
       let question; let system;
       if (address.includes('api.groq.com/openai/v1/chat/completions')) {

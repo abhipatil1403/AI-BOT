@@ -1,14 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { NativeImage } from 'electron';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 const mocks = vi.hoisted(() => ({ read: vi.fn(), createFromBuffer: vi.fn() }));
 vi.mock('electron', () => ({ clipboard: { read: mocks.read }, nativeImage: { createFromBuffer: mocks.createFromBuffer } }));
-import { prepareImage, readClipboardQuestion } from '../apps/desktop/images';
+import { prepareImage, readClipboardQuestion, readImageFile } from '../apps/desktop/images';
 function native(width = 500, height = 300, pngSize = 20): NativeImage {
   const image = { isEmpty: () => false, getSize: () => ({ width, height }), toPNG: () => Buffer.alloc(pngSize), toJPEG: vi.fn(() => Buffer.alloc(10)), resize: vi.fn() };
   image.resize.mockReturnValue({ ...image, getSize: () => ({ width: 1000, height: 1000 }) });
   return image as unknown as NativeImage;
 }
 describe('desktop image acquisition', () => {
+  it('reads only the selected file and reports a missing file as an image error', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'ai-image-unit-'));
+    try {
+      const path = join(directory, 'question.png'); await writeFile(path, Buffer.from('synthetic image'));
+      mocks.createFromBuffer.mockReturnValue(native());
+      expect(await readImageFile(path)).toHaveProperty('image.mimeType', 'image/png');
+      expect(mocks.createFromBuffer).toHaveBeenLastCalledWith(Buffer.from('synthetic image'));
+      await expect(readImageFile(join(directory, 'missing.png'))).rejects.toThrow('Unable to read the image file');
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it('normalizes large screenshots and rejects excessively large dimensions', () => {
     const image = native(4000, 4000); prepareImage(image);
     expect(image.resize).toHaveBeenCalledWith({ width: 2000, height: 2000, quality: 'best' });

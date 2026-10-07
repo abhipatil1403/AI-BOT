@@ -27,13 +27,18 @@ export async function readClipboardQuestion(): Promise<QuestionInput> {
   return item ? (await item.getType('text/plain')).text() : '';
 }
 export async function readImageFile(path: string): Promise<ImageQuestion> {
-  const file = await open(path, 'r');
+  const file = await open(path, 'r').catch(() => { throw new AssistantError('image', 'Unable to read the image file. Choose it again'); });
   try {
     const info = await file.stat();
     if (!info.isFile() || info.size > 20_000_000) throw new AssistantError('size', 'Choose an image file of 20 MB or less');
     const data = Buffer.alloc(Number(info.size) + 1);
-    const { bytesRead } = await file.read(data, 0, data.length, 0);
-    if (bytesRead > info.size) throw new AssistantError('image', 'Image changed while reading. Try again');
+    let bytesRead = 0;
+    while (bytesRead < data.length) {
+      const part = await file.read(data, bytesRead, data.length - bytesRead, bytesRead);
+      if (!part.bytesRead) break;
+      bytesRead += part.bytesRead;
+    }
+    if (bytesRead !== info.size) throw new AssistantError('image', 'Image changed while reading. Try again');
     return prepareImage(nativeImage.createFromBuffer(data.subarray(0, bytesRead)));
   } finally { await file.close(); }
 }

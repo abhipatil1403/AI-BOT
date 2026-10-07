@@ -14,7 +14,7 @@
     "test:integration": "vitest run tests/integration.test.ts",
     "test:e2e": "node scripts/smoke.mjs",
     "build": "node scripts/build.mjs",
-    "package": "npm run build && electron-builder --win nsis portable",
+    "package": "npm run build && electron-builder --win nsis portable && node scripts/package-extension.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {

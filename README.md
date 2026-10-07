@@ -41,7 +41,7 @@ Provider validation checks authentication and never sends clipboard text. Keys a
 
 1. Run `npm run build` and start the desktop companion.
 2. Open `chrome://extensions` (or `edge://extensions`), enable Developer mode, and choose **Load unpacked**.
-3. Select `dist/extension`.
+3. Select `dist/extension` (development build) or `release/extension` (created by `npm run package`). The selected folder must directly contain `manifest.json`. **Do not select `release/win-unpacked`: that folder contains the Windows desktop app and cannot be loaded as a browser extension.**
 4. Open desktop Settings → **Extension pairing & diagnostics**. Select the displayed pairing token manually.
 5. Enter that token in the extension's **Pair extension** screen and choose **Save & connect**.
 6. Reload website tabs that were open before the extension was loaded.

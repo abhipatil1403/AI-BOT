@@ -3,7 +3,7 @@
 Verified on Windows on 8 October 2026:
 
 - Lint and strict TypeScript checking pass.
-- 61 unit, provider, integration, keyboard and widget tests pass.
+- 75 unit, provider, integration, keyboard and widget tests pass, including exported cookie JSON and Cookie header validation.
 - Both Electron and Chromium production builds succeed.
 - NSIS installer and portable EXE packaging succeeds without native compilation.
 - The packaged application (`release/win-unpacked/AI Quick Answer.exe`) launches with its actual ASAR bundle and N-API keyboard binary.

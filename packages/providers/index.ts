@@ -97,7 +97,7 @@ export class GeminiWebProvider implements AIProvider {
   private readonly cookies: Record<string, string>;
   private session?: { token: string; build?: string; id?: string; expires: number };
   private requestId = 10000;
-  constructor(json: string, private readonly transport: Transport = fetch) { this.cookies = parseCookies(json); }
+  constructor(sessionInput: string, private readonly transport: Transport = fetch) { this.cookies = parseCookies(sessionInput); }
   private headers(): Record<string, string> {
     return { Cookie: Object.entries(this.cookies).map(([name, value]) => `${name}=${value}`).join('; '), 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36' };
   }

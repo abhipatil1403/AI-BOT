@@ -23,7 +23,15 @@ For a packaged desktop installation, run `npm run package`, then open `release/A
 
 **Groq:** Obtain an API key from [Groq Console](https://console.groq.com/keys). Select Groq, enter the key, validate the connection, and save the credential. Requests use Groq's HTTPS chat-completions API with `llama-3.3-70b-versatile` and JSON output.
 
-**Gemini Web:** Select Gemini Web and explicitly supply cookie JSON from your own signed-in Gemini session. Accepted formats are a name/value object or an array of cookie objects (`name`, `value`, optional `domain`). The JSON must contain `__Secure-1PSID`; supply other relevant Google session cookies as needed. Validate, then save. The app never opens browser cookie databases, extracts browser cookies, or obtains your initial session automatically. Session responses may update cookies in memory only. Re-enter cookies if the session expires.
+**Gemini Web:** Select Gemini Web and explicitly supply cookies from your own signed-in Gemini session. Accepted formats are a JSON name/value object, an exported JSON array of cookie objects (`name`, `value`, optional `domain`, other browser metadata allowed), or a single Cookie header string (`name=value; name=value`, optionally prefixed with `Cookie:`). Every format must contain `__Secure-1PSID`; supply other relevant Google session cookies as needed. Paste the complete input locally in Settings, validate, then save. Truncated JSON, duplicate header names, other HTTP headers and unsafe values are rejected. The app never opens browser cookie databases, extracts browser cookies, or obtains your initial session automatically. Session responses may update cookies in memory only. Re-enter cookies if the session expires.
+
+Format examples below use placeholder values. Your actual session values belong only in local Settings.
+
+```text
+[{"name":"__Secure-1PSID","value":"your-session-value","domain":".google.com"}]
+
+Cookie: __Secure-1PSID=your-session-value; __Secure-1PSIDTS=your-session-timestamp
+```
 
 Gemini Web uses an **unofficial, changeable web protocol**, with temporary-chat requests. Google may expire sessions, restrict access, or change the request format. It is not Google's supported Gemini Developer API. Protocol failures produce a small error and do not fall back to another provider or unauthenticated access. The adapter's wire format was checked against the [upstream Gemini web client](https://github.com/Expert-Vision-Software/gemini-web-sdk).
 

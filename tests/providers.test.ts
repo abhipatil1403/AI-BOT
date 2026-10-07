@@ -20,6 +20,11 @@ describe('Groq adapter', () => {
   });
 });
 describe('Gemini web adapter', () => {
+  it('uses supplied Cookie header values for session validation', async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response('"SNlM0e":"synthetic-token"'));
+    await new GeminiWebProvider('Cookie: __Secure-1PSID=synthetic-cookie==; SSID=synthetic-ssid', transport).validate(signal());
+    expect((transport.mock.calls[0]?.[1]?.headers as Record<string, string>).Cookie).toBe('__Secure-1PSID=synthetic-cookie==; SSID=synthetic-ssid');
+  });
   it('initializes supplied session, reuses it, and submits temporary requests', async () => {
     const transport = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(new Response('"SNlM0e":"token","cfb2h":"build","FdrFJe":"session"'))

@@ -101,7 +101,7 @@ function credential(provider: unknown, value: unknown): { name: Config['provider
   const secret = z.string().trim().min(1).max(65536).parse(value);
   if (name === 'groq' && (!/^[A-Za-z0-9_-]{20,256}$/.test(secret))) throw new AssistantError('credentials', 'Enter a valid Groq API key');
   if (name === 'gemini') {
-    try { parseCookies(secret); } catch (error) { throw new AssistantError('cookies', error instanceof Error ? error.message : 'Invalid cookie JSON'); }
+    try { parseCookies(secret); } catch (error) { throw new AssistantError('cookies', error instanceof Error ? error.message : 'Invalid cookie input'); }
   }
   return { name, secret };
 }

@@ -51,9 +51,21 @@ describe('response validation and prompting', () => {
   });
 });
 describe('cookie and settings safety', () => {
-  it('accepts only explicitly supplied JSON objects and arrays', () => {
+  it('accepts explicitly supplied JSON objects and exported arrays with browser metadata', () => {
     expect(parseCookies('{"__Secure-1PSID":"synthetic-test-cookie"}')).toHaveProperty('__Secure-1PSID');
-    expect(parseCookies('[{"name":"__Secure-1PSID","value":"synthetic-test-cookie","domain":".google.com"}]')).toHaveProperty('__Secure-1PSID');
+    expect(parseCookies('[{"name":"__Secure-1PSID","value":"synthetic-test-cookie","domain":".google.com","httpOnly":true,"sameSite":"no_restriction","storeId":null}]')).toHaveProperty('__Secure-1PSID');
+  });
+  it.each(['__Secure-1PSID=synthetic-test-cookie; SSID=test', 'Cookie: __Secure-1PSID=synthetic-test-cookie; SSID=test;', 'cookie:\t__Secure-1PSID=synthetic-test-cookie; SSID=test'])('accepts a supplied Cookie header %s', value => {
+    expect(parseCookies(value)).toEqual({ '__Secure-1PSID': 'synthetic-test-cookie', SSID: 'test' });
+  });
+  it('preserves equals signs in header values', () => {
+    expect(parseCookies('__Secure-1PSID=synthetic==')).toEqual({ '__Secure-1PSID': 'synthetic==' });
+  });
+  it.each(['__Secure-1PSID=x\r\nAuthorization: secret', 'Cookie: __Secure-1PSID=x\n', '__Secure-1PSID=x; __Secure-1PSID=y', '__Secure-1PSID=x;; SSID=y', '__Secure-1PSID=', '__Secure-1PSID=x; SSID', 'Set-Cookie: __Secure-1PSID=x', '__Secure-1PSID=x, SSID=y'])('rejects malformed or unsafe headers %s', value => expect(() => parseCookies(value)).toThrow());
+  it('rejects incomplete JSON and missing required session cookies with useful messages', () => {
+    expect(() => parseCookies('[{"domain":".google.com",')).toThrow('incomplete or invalid');
+    expect(() => parseCookies('SSID=synthetic')).toThrow('Missing __Secure-1PSID');
+    expect(() => parseCookies('[{"name":"SSID","value":"synthetic"}]')).toThrow('Missing __Secure-1PSID');
   });
   it.each(['not-json', '{}', 'null', '[]', '{"__Secure-1PSID":"x\\r\\nheader"}', '{"bad;name":"value","__Secure-1PSID":"x"}', '[{"name":"__Secure-1PSID","value":"x","domain":"evil.test"}]'])('rejects unsafe cookies %s', value => expect(() => parseCookies(value)).toThrow());
   it('validates shortcuts and excludes unknown settings', () => { expect(configSchema.safeParse({ shortcut: 'Ctrl+Alt+Shift+F12' }).success).toBe(true); expect(configSchema.safeParse({ shortcut: 'V' }).success).toBe(false); expect(configSchema.safeParse({ apiKey: 'secret' }).success).toBe(false); });

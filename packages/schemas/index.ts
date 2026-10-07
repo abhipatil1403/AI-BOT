@@ -37,10 +37,34 @@ const cookieValue = z.string().min(1).max(8192).regex(/^[\x21-\x7e]+$/).refine(v
 const cookieName = z.string().regex(/^[A-Za-z0-9_-]+$/).max(128);
 const cookieRecord = z.record(cookieName, cookieValue);
 const cookieArray = z.array(z.object({ name: cookieName, value: cookieValue, domain: z.string().optional() }).passthrough()).max(100);
-export function parseCookies(json: string): Record<string, string> {
-  if (json.length > 65536) throw new Error('Cookie JSON is too large');
+function parseCookieHeader(input: string): Record<string, string> {
+  if (/[\r\n]/.test(input)) throw new Error('Use a single Cookie header, without other HTTP headers');
+  const header = input.trim().replace(/^Cookie:[\t ]*/i, '');
+  const parts = header.split(';');
+  if (parts.at(-1)?.trim() === '') parts.pop();
+  if (!parts.length || parts.length > 100) throw new Error('Invalid Cookie header');
+  const entries: [string, string][] = [];
+  const names = new Set<string>();
+  for (const part of parts) {
+    const pair = part.trim(); const separator = pair.indexOf('=');
+    if (separator < 1) throw new Error('Use Cookie header entries in name=value format');
+    const name = pair.slice(0, separator); const value = pair.slice(separator + 1);
+    if (!cookieName.safeParse(name).success || !cookieValue.safeParse(value).success) throw new Error('Invalid cookie name or value');
+    if (names.has(name)) throw new Error('Duplicate cookie name');
+    names.add(name); entries.push([name, value]);
+  }
+  return Object.fromEntries(entries);
+}
+export function parseCookies(input: string): Record<string, string> {
+  if (input.length > 65536) throw new Error('Cookie input is too large');
+  const trimmed = input.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    const cookies = parseCookieHeader(input);
+    if (!cookies['__Secure-1PSID']) throw new Error('Missing __Secure-1PSID session cookie');
+    return cookies;
+  }
   let raw: unknown;
-  try { raw = JSON.parse(json); } catch { throw new Error('Enter valid cookie JSON'); }
+  try { raw = JSON.parse(trimmed); } catch { throw new Error('Cookie JSON is incomplete or invalid'); }
   const record = cookieRecord.safeParse(raw);
   let cookies: Record<string, string>;
   if (record.success) cookies = record.data;

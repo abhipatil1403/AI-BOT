@@ -4,6 +4,7 @@ const element = <T extends HTMLElement>(id: string): T => document.getElementByI
 const input = (id: string) => element<HTMLInputElement>(id);
 const select = (id: string) => element<HTMLSelectElement>(id);
 let data: SettingsData;
+let dirty = false;
 const status = (message: string, error = false) => { element('status').textContent = message; element('status').classList.toggle('error', error); };
 const provider = (): Config['provider'] => (document.querySelector<HTMLInputElement>('input[name=provider]:checked')?.value ?? 'groq') as Config['provider'];
 function updateFields(): void { element('groq-fields').hidden = provider() !== 'groq'; element('gemini-fields').hidden = provider() !== 'gemini'; }
@@ -24,6 +25,7 @@ async function refresh(): Promise<void> {
     const description = document.createElement('dd'); description.textContent = String(value); diagnostics.append(term, description);
   }
   updateFields();
+  dirty = false;
 }
 async function action(button: HTMLButtonElement, fn: () => Promise<void>, success: string): Promise<void> {
   button.disabled = true; status('Working…');
@@ -32,6 +34,8 @@ async function action(button: HTMLButtonElement, fn: () => Promise<void>, succes
   finally { button.disabled = false; }
 }
 document.querySelectorAll('input[name=provider]').forEach(radio => radio.addEventListener('change', updateFields));
+element('settings').addEventListener('input', () => { dirty = true; });
+element('settings').addEventListener('change', () => { dirty = true; });
 element('settings').addEventListener('submit', event => {
   event.preventDefault();
   const next = configSchema.safeParse({ ...data.config, provider: provider(), duration: Number(select('duration').value), language: select('language').value, position: select('position').value, visibility: select('visibility').value, shortcut: input('shortcut').value, explanations: input('explanations').checked, comments: input('comments').checked, sharing: input('sharing').checked });
@@ -49,4 +53,4 @@ element<HTMLButtonElement>('rotate').addEventListener('click', event => { void a
 element<HTMLButtonElement>('test-clipboard').addEventListener('click', event => { void action(event.currentTarget as HTMLButtonElement, () => window.assistant.trigger(), 'Clipboard request triggered'); });
 window.assistant.onState(() => { /* No answer content is displayed in Settings. */ });
 void refresh().catch(() => status('Settings could not be loaded. Restart the application.', true));
-window.addEventListener('focus', () => { if (data && !input('groq-key').value && !element<HTMLTextAreaElement>('gemini-cookies').value) void refresh().catch(() => {}); });
+window.addEventListener('focus', () => { if (data && !dirty && !input('groq-key').value && !element<HTMLTextAreaElement>('gemini-cookies').value) void refresh().catch(() => {}); });

@@ -63,6 +63,7 @@ export class Widget {
     const state = parsed.data;
     const version = `${state.requestId}:${state.phase}:${state.updatedAt}`;
     this.state = state;
+    if (this.version === version) return;
     if (this.version !== version) {
       clearTimeout(this.timer); this.version = version; this.expanded = false;
       this.mcqVisible = state.phase === 'ready' && state.answer?.type === 'mcq';

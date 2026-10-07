@@ -5,20 +5,25 @@ export class Controller {
   state: AssistantState;
   private pending?: AbortController;
   private lastTrigger = 0;
-  constructor(config: Config, private readonly clipboard: () => string, private readonly provider: (config: Config) => AIProvider, private readonly publish: (state: AssistantState) => void) {
+  private clipboardSequence = 0;
+  constructor(config: Config, private readonly clipboard: () => string | Promise<string>, private readonly provider: (config: Config) => AIProvider, private readonly publish: (state: AssistantState) => void) {
     this.state = { phase: 'idle', requestId: 0, updatedAt: Date.now(), config };
   }
   configure(config: Config): void {
+    this.clipboardSequence++;
     this.pending?.abort(); this.pending = undefined;
     this.state = { phase: 'idle', requestId: this.state.requestId + 1, config, updatedAt: Date.now() }; this.publish(this.state);
   }
   async trigger(): Promise<void> {
     if (Date.now() - this.lastTrigger < 300) return;
     this.lastTrigger = Date.now();
+    const sequence = ++this.clipboardSequence;
     let text: string;
-    try { text = sanitizeInput(this.clipboard()); }
+    try { text = sanitizeInput(await this.clipboard()); if (sequence !== this.clipboardSequence) return; }
     catch (error) {
+      if (sequence !== this.clipboardSequence) return;
       if (error instanceof AssistantError && error.code === 'empty') return;
+      this.pending?.abort(); this.pending = undefined;
       this.fail(error); return;
     }
     this.pending?.abort();
@@ -38,5 +43,5 @@ export class Controller {
     this.state = { phase: 'error', requestId: this.state.requestId, config: this.state.config, updatedAt: Date.now(), error: error instanceof AssistantError ? error.message : 'AI connection failed' };
     this.publish(this.state);
   }
-  stop(): void { this.pending?.abort(); }
+  stop(): void { this.clipboardSequence++; this.pending?.abort(); }
 }

@@ -21,28 +21,49 @@
     "uiohook-napi": "1.5.5",
     "zod": "^3.25.76"
   },
+  "overrides": { "app-builder-lib": { "@electron/get": "^5.1.0" } },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
     "@playwright/test": "^1.56.0",
     "@types/chrome": "^0.1.24",
     "@types/node": "^22.18.0",
-    "electron": "^40.0.0",
+    "electron": "^44.6.0",
     "electron-builder": "^26.0.12",
-    "esbuild": "^0.25.10",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.0",
     "jsdom": "^26.1.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0",
-    "vitest": "^3.2.4"
+    "vitest": "^5.0.3"
   },
   "build": {
     "appId": "com.aiquickanswer.assistant",
     "productName": "AI Quick Answer",
-    "directories": { "output": "release" },
-    "files": ["dist/desktop/**/*", "package.json"],
-    "asarUnpack": ["**/*.node"],
-    "win": { "target": ["nsis", "portable"], "signAndEditExecutable": false },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/desktop/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22.12"
+  }
 }

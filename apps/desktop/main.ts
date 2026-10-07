@@ -14,7 +14,7 @@ import { startBridge } from './bridge';
 import { PassiveHotkey } from './hotkey';
 
 const smoke = process.argv.includes('--smoke');
-if (smoke) app.setPath('userData', join(app.getPath('temp'), 'ai-quick-answer-smoke'));
+if (smoke) app.setPath('userData', process.env.AI_BOT_SMOKE_DATA ?? join(app.getPath('temp'), 'ai-quick-answer-smoke'));
 app.setName('AI Quick Answer');
 app.commandLine.appendSwitch('disable-http-cache');
 let tray: Tray | undefined;
@@ -57,7 +57,7 @@ function openSettings(): void {
 function positionWidget(): void {
   if (!widgetWindow) return;
   const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  const [width, height] = widgetWindow.getSize();
+  const [width = 40, height = 40] = widgetWindow.getSize();
   const left = config.position.endsWith('left'); const top = config.position.startsWith('top');
   widgetWindow.setPosition(left ? area.x + 16 : area.x + area.width - width - 16, top ? area.y + 16 : area.y + area.height - height - 16);
 }
@@ -68,7 +68,7 @@ function visibleState(): AssistantState {
 function publish(): void {
   if (!controller) return;
   if (config.visibility === 'sharing' && config.sharing) widgetWindow?.hide();
-  else widgetWindow?.showInactive();
+  else if (widgetWindow && !widgetWindow.isVisible()) widgetWindow.showInactive();
   const state = visibleState();
   for (const window of [widgetWindow, settingsWindow]) if (window && !window.isDestroyed()) window.webContents.send('assistant:state', state);
 }
@@ -78,7 +78,7 @@ function updateTray(): void {
     { label: `Shortcut: ${config.shortcut}`, enabled: false },
     { label: 'Settings', click: openSettings },
     { label: 'Answer clipboard', click: () => { void controller.trigger(); } },
-    { label: 'Screen sharing mode', type: 'checkbox', checked: config.sharing, click: item => {
+    { label: 'Screen sharing is active', type: 'checkbox', checked: config.sharing, click: item => {
       config = { ...config, sharing: item.checked }; storage.saveConfig(config); controller.configure(config); updateTray();
     } },
     { type: 'separator' }, { label: 'Quit', click: () => app.quit() }
@@ -125,7 +125,7 @@ function registerIPC(): void {
   handle('credential:remove', true, provider => { const name = z.enum(['groq', 'gemini']).parse(provider); storage.removeSecret(name); providers.delete(name); controller.configure(config); });
   handle('pairing:rotate', true, () => { const next = randomBytes(32).toString('hex'); storage.setSecret('pairing', next); pairingToken = next; return next; });
   handle('assistant:trigger', false, () => { void controller.trigger(); });
-  handle('assistant:copy', false, () => { if (controller.state.phase === 'ready' && controller.state.answer?.type === 'code') clipboard.writeText(controller.state.answer.code); });
+  handle('assistant:copy', false, async () => { if (controller.state.phase === 'ready' && controller.state.answer?.type === 'code') await clipboard.writeText(controller.state.answer.code); });
   ipcMain.on('assistant:subscribe', event => { if (authorized(event)) event.sender.send('assistant:state', visibleState()); });
   ipcMain.on('widget:resize', (event, width: unknown, height: unknown) => {
     if (!authorized(event) || event.sender.id !== widgetWindow?.webContents.id) return;
@@ -135,7 +135,7 @@ function registerIPC(): void {
 }
 
 async function start(): Promise<void> {
-  storage = new Storage(app.getPath('userData'), { ...safeStorage, isEncryptionAvailable: encryptionAvailable });
+  storage = new Storage(app.getPath('userData'), { isEncryptionAvailable: encryptionAvailable, encryptString: value => safeStorage.encryptString(value), decryptString: value => safeStorage.decryptString(value) });
   config = storage.loadConfig();
   pairingToken = storage.getSecret('pairing') ?? randomBytes(32).toString('hex');
   storage.setSecret('pairing', pairingToken);
@@ -159,7 +159,10 @@ async function start(): Promise<void> {
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (controller) openSettings(); });
-  app.whenReady().then(start).catch(() => { void dialog.showErrorBox('AI Quick Answer', 'Unable to start. Secure storage or application files are unavailable.'); app.quit(); });
+  app.whenReady().then(start).catch((error: unknown) => {
+    console.error('Assistant startup failed:', error instanceof AssistantError ? error.code : error instanceof Error ? error.name : 'unknown');
+    void dialog.showMessageBox({ type: 'error', title: 'AI Quick Answer', message: 'Unable to start. Secure storage or application files are unavailable.' }).then(() => app.quit());
+  });
 }
 app.on('window-all-closed', () => { /* The assistant stays in the system tray. */ });
 app.on('before-quit', () => { quitting = true; controller?.stop(); hotkey?.stop(); bridge?.close(); tray?.destroy(); });

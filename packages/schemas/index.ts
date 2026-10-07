@@ -18,7 +18,7 @@ export const defaultConfig = configSchema.parse({});
 export const answerSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mcq'), answer: z.string().regex(/^[A-H1-8]$/), text: z.string().max(2000).optional(), explanation: z.string().max(4000).optional() }).strict(),
   z.object({ type: z.literal('descriptive'), answer: z.string().trim().min(1).max(20000) }).strict(),
-  z.object({ type: z.literal('code'), language: z.enum(languages), code: z.string().min(1).max(50000) }).strict()
+  z.object({ type: z.literal('code'), language: z.enum(languages), code: z.string().min(1).max(50000).refine(value => /\S/.test(value)) }).strict()
 ]);
 export type Answer = z.infer<typeof answerSchema>;
 export type AnswerType = Answer['type'];

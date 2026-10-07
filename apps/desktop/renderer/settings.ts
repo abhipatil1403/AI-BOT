@@ -14,7 +14,7 @@ async function refresh(): Promise<void> {
   const config = data.config;
   document.querySelector<HTMLInputElement>(`input[name=provider][value=${config.provider}]`)!.checked = true;
   for (const key of ['duration', 'language', 'position', 'visibility'] as const) select(key).value = String(config[key]);
-  for (const key of ['explanations', 'comments', 'sharing'] as const) input(key).checked = config[key];
+  for (const key of ['explanations', 'comments', 'sharing', 'captureProtection'] as const) input(key).checked = config[key];
   input('shortcut').value = config.shortcut; input('pairing').value = data.pairingToken;
   element('groq-saved').textContent = data.configured.groq ? 'Saved securely' : 'Not configured';
   element('gemini-saved').textContent = data.configured.gemini ? 'Saved securely' : 'Not configured';
@@ -38,7 +38,7 @@ element('settings').addEventListener('input', () => { dirty = true; });
 element('settings').addEventListener('change', () => { dirty = true; });
 element('settings').addEventListener('submit', event => {
   event.preventDefault();
-  const next = configSchema.safeParse({ ...data.config, provider: provider(), duration: Number(select('duration').value), language: select('language').value, position: select('position').value, visibility: select('visibility').value, shortcut: input('shortcut').value, explanations: input('explanations').checked, comments: input('comments').checked, sharing: input('sharing').checked });
+  const next = configSchema.safeParse({ ...data.config, provider: provider(), duration: Number(select('duration').value), language: select('language').value, position: select('position').value, visibility: select('visibility').value, shortcut: input('shortcut').value, explanations: input('explanations').checked, comments: input('comments').checked, sharing: input('sharing').checked, captureProtection: input('captureProtection').checked });
   if (!next.success) { status('Invalid shortcut. Use Ctrl+[Alt+][Shift+] followed by a letter, digit or F1–F12.', true); return; }
   void action(document.querySelector<HTMLButtonElement>('button[type=submit]')!, async () => { await window.assistant.saveConfig(next.data); await refresh(); }, 'Settings saved');
 });

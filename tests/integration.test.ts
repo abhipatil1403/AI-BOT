@@ -40,6 +40,17 @@ describe('desktop bridge and clipboard requests', () => {
     const res = await fetch(`http://127.0.0.1:${port}/v1/state`, { headers: { Authorization: 'Bearer token' } });
     expect(await res.json()).not.toHaveProperty('answer');
   });
+  it.each([true, false])('keeps the desktop answer while protecting the browser when capture exclusion is %s', async captureProtection => {
+    const config = { ...defaultConfig, visibility: 'always' as const, sharing: true, captureProtection };
+    const controller = new Controller(config, () => 'Question?', () => ({ generate: async () => '{"type":"descriptive","answer":"local answer"}', validate: async () => {} }), vi.fn());
+    await controller.trigger();
+    const port = await freePort(); servers.push(await startBridge(controller, () => 'token', vi.fn(), port));
+    const response = await fetch('http://127.0.0.1:' + port + '/v1/state', { headers: { Authorization: 'Bearer token' } });
+    const state = await response.json();
+    expect(controller.state.answer).toEqual({ type: 'descriptive', answer: 'local answer' });
+    expect(state.answer).toEqual(captureProtection ? undefined : controller.state.answer);
+    expect(state.phase).toBe(captureProtection ? 'idle' : 'ready');
+  });
   it('copies only the current validated code and rejects arbitrary or stale payloads', async () => {
     const code = 'def add(a, b):\n    return a + b\n'; const copy = vi.fn().mockResolvedValue(undefined);
     const controller = new Controller(defaultConfig, () => 'Write a program to add two numbers', () => ({ generate: async () => JSON.stringify({ type: 'code', language: 'python', code }), validate: async () => {} }), vi.fn());

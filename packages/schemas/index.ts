@@ -11,10 +11,15 @@ export const configSchema = z.object({
   shortcut: shortcutSchema.default('Ctrl+V'),
   visibility: z.enum(['always', 'minimized', 'sharing']).default('always'),
   sharing: z.boolean().default(false),
+  captureProtection: z.boolean().default(true),
   position: z.enum(['bottom-right', 'bottom-left', 'top-right', 'top-left']).default('bottom-right')
 }).strict();
 export type Config = z.infer<typeof configSchema>;
 export const defaultConfig = configSchema.parse({});
+// A browser iframe cannot have its own Windows display affinity.
+export function hideBrowserOverlay(config: Config): boolean {
+  return config.sharing && (config.visibility === 'sharing' || config.captureProtection);
+}
 export const answerSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mcq'), answer: z.string().regex(/^[A-H1-8]$/), text: z.string().max(2000).optional(), explanation: z.string().max(4000).optional() }).strict(),
   z.object({ type: z.literal('descriptive'), answer: z.string().trim().min(1).max(20000) }).strict(),

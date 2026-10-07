@@ -17,7 +17,7 @@ npm run dev
 
 The first launch opens Settings. Closing Settings leaves the assistant in the system tray. Double-click its tray icon to reopen Settings; use **Quit** to exit.
 
-For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.2.exe`. The portable EXE is also produced in `release/`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
+For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.3.exe`. The portable EXE is also produced in `release/`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
 
 ## Providers
 
@@ -59,7 +59,11 @@ The extension works on ordinary HTTP/HTTPS pages. Chromium internal pages, the w
 - Visibility: always show, minimized, or hide while sharing. Minimized answers require hover/focus. The dot can be focused or clicked; Escape collapses it.
 - Position: any screen corner, using the display nearest the pointer for desktop positioning.
 
-**Screen sharing is user-controlled:** choose **Hide assistant window while screen sharing**, then enable **Screen sharing is active** in Settings or the tray before sharing. The app calls ordinary window hiding and removes the browser frame from display. It does not auto-detect other apps' sharing sessions or change recording APIs, display affinity, or monitoring behavior. Settings and other apps remain normal visible windows. Stop sharing mode yourself when done.
+**Windows capture exclusion:** version 1.0.3 enables **Exclude desktop windows from screen capture** by default, including for existing saved configurations. Both the widget and Settings window are created hidden, protected before loading/showing, and reapply protection when shown. Electron's [content protection API](https://www.electronjs.org/docs/latest/api/browser-window#winsetcontentprotectionenable) calls `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE` (0x11). Supported captures omit these windows while they remain visible on the local display. Windows 10 2004+ and Windows 11 support exclusion; older Windows can produce a black window instead. Settings diagnostics show whether Electron reports protection enabled.
+
+**Before sharing:** keep capture exclusion enabled, choose **Always show** or **Minimized**, and enable **Screen sharing is active** in Settings or the tray. The protected desktop assistant stays visible locally. The browser overlay is hidden and its answer data is withheld because a Chrome iframe cannot independently use Windows display affinity. Choose **Hide assistant window while screen sharing** to hide the desktop widget too. Sharing detection is manual; turn the sharing toggle off when done. Reload the rebuilt extension (version 1.0.1) after upgrading the companion.
+
+**Verify the actual sharing preview:** this is capture exclusion, not a universal guarantee of invisibility. Microsoft [does not guarantee protection against every capture method](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity), and Electron notes that the change takes effect on the next desktop composition. Hardware capture, cameras and capture methods that ignore affinity can still see the windows. This feature does not conceal the process in Task Manager or protect other applications.
 
 The clipboard is read only on the configured shortcut or an explicit Answer clipboard action. Empty/non-text contents do nothing. Text is normalized, bounded to 20,000 characters and sent only to the selected provider over HTTPS. The clipboard is changed only by **Copy code**. Never trigger with secrets or private material you do not want that provider to receive.
 
@@ -111,7 +115,7 @@ npm run package
 - **Gemini session expired / web protocol unavailable:** explicitly replace your own session cookies and validate. If Google has changed its protocol, an adapter update may be required; Groq remains an independent option.
 - **Gemini validation reports AI connection failed with complete cookies:** install version 1.0.2 or later. Google's response can exceed Node's default 16 KiB header limit; the Gemini client now permits a bounded 64 KiB response header block. An oversized response gives a specific error without exposing cookies.
 - **Invalid AI response:** a strict retry is attempted once. Try a clearer question if the model still returns malformed data.
-- **Extension dot missing:** reload the page after installing the extension and use a regular HTTP/HTTPS page. Privacy mode intentionally hides it while sharing is active.
+- **Extension dot missing:** reload the rebuilt extension and the page after upgrading, and use a regular HTTP/HTTPS page. Capture exclusion intentionally hides the browser overlay while Screen sharing is active; use the protected desktop widget locally.
 - **Secure storage unavailable:** run under a normal Windows user session and resave the credential if your Windows profile has changed.
 
 Diagnostics expose status/version/error categories only, never clipboard text, responses or credentials. DeveloperTools are disabled for packaged app renderers. For development, use the tests to reproduce transport failures with synthetic fixtures.

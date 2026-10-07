@@ -2,6 +2,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, powe
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
+import { release } from 'node:os';
 import type { Server } from 'node:http';
 import { z } from 'zod';
 import { AssistantError, type AIProvider } from '../../packages/core';
@@ -42,16 +43,29 @@ function providerFor(current: Config): AIProvider {
   const provider = createProvider(current.provider, secret); providers.set(current.provider, provider); return provider;
 }
 function secureWindow(window: BrowserWindow, file: string): void {
+  applyCaptureProtection(window);
+  window.on('show', () => applyCaptureProtection(window));
   const url = pathToFileURL(join(views, file)).href;
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, destination) => { if (destination !== url) event.preventDefault(); });
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   void window.loadURL(url);
 }
+function applyCaptureProtection(window: BrowserWindow): void {
+  if (process.platform === 'win32') window.setContentProtection(config.captureProtection);
+}
+function captureStatus(): string {
+  if (!config.captureProtection) return 'Disabled';
+  if (process.platform !== 'win32') return 'Unsupported on this platform; use Hide while sharing';
+  if (Number(release().split('.')[2]) < 19041) return 'Legacy Windows capture masking; use Hide while sharing';
+  const windows = [widgetWindow, settingsWindow].filter((window): window is BrowserWindow => !!window && !window.isDestroyed());
+  return windows.length && windows.every(window => window.isContentProtected()) ? 'Windows capture exclusion enabled; verify sharing preview' : 'Not enabled; use Hide while sharing';
+}
 function openSettings(): void {
   if (settingsWindow && !settingsWindow.isDestroyed()) { settingsWindow.show(); settingsWindow.focus(); return; }
-  settingsWindow = new BrowserWindow({ width: 770, height: 850, minWidth: 620, minHeight: 650, title: 'AI Quick Answer · Settings', backgroundColor: '#f5f7f6', autoHideMenuBar: true, webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, devTools: !app.isPackaged } });
+  settingsWindow = new BrowserWindow({ width: 770, height: 850, minWidth: 620, minHeight: 650, show: false, title: 'AI Quick Answer · Settings', backgroundColor: '#f5f7f6', autoHideMenuBar: true, webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, devTools: !app.isPackaged } });
   secureWindow(settingsWindow, 'settings.html');
+  settingsWindow.once('ready-to-show', () => settingsWindow?.show());
   settingsWindow.on('close', event => { if (!quitting) { event.preventDefault(); settingsWindow?.hide(); } });
 }
 function positionWidget(): void {
@@ -106,11 +120,13 @@ function credential(provider: unknown, value: unknown): { name: Config['provider
   return { name, secret };
 }
 function registerIPC(): void {
-  handle('settings:get', true, (): SettingsData => ({ config, pairingToken, configured: { groq: storage.hasSecret('groq'), gemini: storage.hasSecret('gemini') }, diagnostics: { provider: config.provider, configured: storage.hasSecret(config.provider), hotkey: hotkeyStatus, bridge: bridgeStatus, encryption: encryptionAvailable(), version: app.getVersion() } }));
+  handle('settings:get', true, (): SettingsData => ({ config, pairingToken, configured: { groq: storage.hasSecret('groq'), gemini: storage.hasSecret('gemini') }, diagnostics: { provider: config.provider, configured: storage.hasSecret(config.provider), hotkey: hotkeyStatus, bridge: bridgeStatus, encryption: encryptionAvailable(), version: app.getVersion(), capture: captureStatus() } }));
   handle('settings:save', true, value => {
     const next = configSchema.safeParse(value);
     if (!next.success) throw new AssistantError('settings', 'Invalid settings or shortcut. Use Ctrl+[Alt+][Shift+]+key');
-    storage.saveConfig(next.data); config = next.data; hotkey?.configure(config.shortcut); controller.configure(config); updateTray();
+    config = next.data;
+    for (const window of [widgetWindow, settingsWindow]) if (window && !window.isDestroyed()) applyCaptureProtection(window);
+    storage.saveConfig(config); hotkey?.configure(config.shortcut); controller.configure(config); updateTray();
   });
   handle('credential:save', true, (provider, value) => {
     const { name, secret } = credential(provider, value); storage.setSecret(name, secret); providers.delete(name);

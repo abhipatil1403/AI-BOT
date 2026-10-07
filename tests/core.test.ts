@@ -2,6 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { answerQuestion, AssistantError, classify, HotkeyGate, parseAnswer, promptFor, sanitizeInput, type AIProvider } from '../packages/core';
 import { configSchema, defaultConfig, parseCookies } from '../packages/schemas';
 
+describe('capture protection settings', () => {
+  it('enables exclusion for existing saved configurations without losing preferences', () => {
+    const legacy: Record<string, unknown> = { ...defaultConfig, provider: 'gemini', duration: 10 };
+    delete legacy.captureProtection;
+    expect(configSchema.parse(legacy)).toMatchObject({ provider: 'gemini', duration: 10, captureProtection: true });
+    expect(configSchema.parse({ captureProtection: false }).captureProtection).toBe(false);
+    expect(configSchema.safeParse({ captureProtection: 'true' }).success).toBe(false);
+  });
+});
+
 describe('clipboard pipeline', () => {
   it('normalizes line endings and removes control characters', () => { expect(sanitizeInput('  A\r\nB\u0000 ')).toBe('A\nB'); });
   it('rejects empty and oversized text', () => { expect(() => sanitizeInput('  ')).toThrow('No text'); expect(() => sanitizeInput('x'.repeat(20001))).toThrow('too long'); });

@@ -21,7 +21,8 @@
       <div><label for="shortcut">Global shortcut</label><input id="shortcut" value="Ctrl+V" spellcheck="false"><p class="hint">Ctrl+[Alt+][Shift+]+key. Normal paste keeps working.</p></div>
       <div><label for="position">Widget position</label><select id="position"><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option><option value="top-right">Top right</option><option value="top-left">Top left</option></select></div>
       <div class="full"><label for="visibility">Assistant visibility</label><select id="visibility"><option value="always">Always show</option><option value="minimized">Minimized (reveal all answers intentionally)</option><option value="sharing">Hide assistant window while screen sharing</option></select></div></div>
-      <label class="check-row"><input type="checkbox" id="sharing">Screen sharing is active</label><p class="hint">Toggle this before sharing, or use the tray menu. Hides the entire widget in both clients. Sharing detection is manual.</p>
+      <label class="check-row"><input type="checkbox" id="captureProtection">Exclude desktop windows from screen capture (Windows)</label><p class="hint">Enabled by default. Keeps the desktop assistant visible locally while excluding it from supported captures on Windows 10 2004+ and Windows 11. Verify your meeting's sharing preview; some capture methods can still see it.</p>
+      <label class="check-row"><input type="checkbox" id="sharing">Screen sharing is active</label><p class="hint">Toggle before sharing, or use the tray menu. With capture exclusion enabled, the browser overlay is hidden while the desktop assistant stays visible. Choose “Hide assistant window while screen sharing” to hide both. Sharing detection is manual.</p>
     </section>
     <footer><p id="status" role="status" aria-live="polite">Ready to configure.</p><button type="submit" class="primary">Save settings</button></footer>
   </form>

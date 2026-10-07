@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { HOST, PORT } from '../../packages/protocol';
 import type { Controller } from './controller';
-import { copyRequestSchema } from '../../packages/schemas';
+import { copyRequestSchema, hideBrowserOverlay } from '../../packages/schemas';
 
 export function startBridge(controller: Controller, token: () => string, openSettings: () => void, port = PORT, copyCode?: (code: string) => Promise<void>): Promise<Server> {
   const server = createServer(async (req, res) => {
@@ -24,7 +24,7 @@ export function startBridge(controller: Controller, token: () => string, openSet
     res.setHeader('Content-Type', 'application/json');
     if (req.method === 'GET' && req.url === '/v1/state') {
       const state = controller.state;
-      const hidden = state.config.visibility === 'sharing' && state.config.sharing;
+      const hidden = hideBrowserOverlay(state.config);
       res.end(JSON.stringify(hidden ? { ...state, phase: 'idle', answer: undefined, error: undefined } : state));
     } else if (req.method === 'POST' && req.url === '/v1/trigger') {
       void controller.trigger(); res.writeHead(202).end('{}');

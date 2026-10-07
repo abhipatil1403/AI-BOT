@@ -4,6 +4,8 @@ import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 const profile = await mkdtemp(join(tmpdir(), 'ai-bot-e2e-'));
 const browserProfile = await mkdtemp(join(tmpdir(), 'ai-bot-browser-'));
@@ -29,6 +31,21 @@ try {
   assert(settings, 'Settings window launched');
   await settings.locator('#connection').filter({ hasText: /Setup needed|Provider configured/ }).waitFor();
   const widget = await desktopWindow(page => page.url().endsWith('widget.html')); assert(widget, 'Widget window launched');
+  if (process.platform === 'win32') {
+    for (const enabled of [true, false, true]) {
+      await settings.evaluate(async enabled => {
+        const data = await window.assistant.settings();
+        await window.assistant.saveConfig({ ...data.config, captureProtection: enabled });
+      }, enabled);
+      const handles = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => {
+        const handle = window.getNativeWindowHandle();
+        return handle.length === 8 ? handle.readBigUInt64LE().toString() : handle.readUInt32LE().toString();
+      }));
+      const result = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', resolve('scripts/query-display-affinity.ps1'), '-Handles', handles.join(',')], { windowsHide: true, timeout: 30000 });
+      assert.deepEqual(JSON.parse(result.stdout.trim()), handles.map(() => enabled ? 0x11 : 0), 'Actual Win32 affinity on both desktop windows');
+    }
+    console.log('PASS: actual Windows WDA_EXCLUDEFROMCAPTURE on Settings and widget; toggle restores WDA_NONE');
+  }
   originalClipboard = await desktop.evaluate(({ clipboard }) => clipboard.readText());
 
   // Test-only HTTP fixtures installed externally into the running main process.
@@ -169,6 +186,16 @@ try {
   assert.equal(await page.locator('body').innerText(), 'Assistant test page', 'Answer is not in page DOM');
   await page.screenshot({ path: join(output, 'extension.png') });
   console.log('PASS: actual MV3 extension pairs and renders authenticated companion state');
+
+  await settings.evaluate(async () => {
+    const data = await window.assistant.settings(); await window.assistant.saveConfig({ ...data.config, visibility: 'always', sharing: true, captureProtection: true });
+  });
+  await page.locator('iframe[title="AI Quick Answer"]').waitFor({ state: 'hidden' });
+  assert(await desktop.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(window => window.getTitle() === 'AI Quick Answer widget');
+    return window?.isVisible() && window.isContentProtected();
+  }), 'Protected desktop remains visible while browser overlay is hidden');
+  console.log('PASS: capture exclusion keeps desktop visible and hides browser overlay while sharing');
 
   await settings.evaluate(async () => {
     const data = await window.assistant.settings(); await window.assistant.saveConfig({ ...data.config, visibility: 'sharing', sharing: true });

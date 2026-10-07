@@ -16,6 +16,8 @@ Version 1.0.1 was also checked against **live Groq** using the user's locally sa
 
 Version 1.0.2 was checked against **live Gemini** using the explicitly supplied cookie export held only in memory. The old transport failed with UND_ERR_HEADERS_OVERFLOW; the bounded 64 KiB Gemini dispatcher successfully validated the session and returned descriptive, MCQ and Python code answers through the actual answer pipeline. No cookie values, session tokens or response bodies were logged or committed.
 
+The packaged 1.0.2 Settings screen also successfully validated both the supplied JSON export and its equivalent Cookie header against live Gemini, using an isolated profile without saving the credential. The packaged Ctrl+V and Chromium extension smoke test passed again after this fix.
+
 Gemini Web is an unofficial session protocol and can change independently of this application. Windows build artifacts are unsigned; supply your own signing certificate for a signed distribution.
 
 Reproduce:

@@ -1,0 +1,48 @@
+{
+  "name": "ai-quick-answer-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Clipboard AI assistant with an Electron companion and Chromium extension",
+  "author": "Abhi Patil",
+  "license": "MIT",
+  "main": "dist/desktop/main.cjs",
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run tests/integration.test.ts",
+    "test:e2e": "node scripts/smoke.mjs",
+    "build": "node scripts/build.mjs",
+    "package": "npm run build && electron-builder --win nsis portable",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "uiohook-napi": "1.5.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@playwright/test": "^1.56.0",
+    "@types/chrome": "^0.1.24",
+    "@types/node": "^22.18.0",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.10",
+    "eslint": "^9.39.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.aiquickanswer.assistant",
+    "productName": "AI Quick Answer",
+    "directories": { "output": "release" },
+    "files": ["dist/desktop/**/*", "package.json"],
+    "asarUnpack": ["**/*.node"],
+    "win": { "target": ["nsis", "portable"], "signAndEditExecutable": false },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
+  },
+  "engines": { "node": ">=22" }
+}

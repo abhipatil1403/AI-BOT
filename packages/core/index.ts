@@ -12,8 +12,10 @@ export function sanitizeInput(raw: string): string {
   return text;
 }
 export function classify(text: string): AnswerType {
-  const options = [...text.matchAll(/^\s*([A-Ha-h1-8])[.)]\s+\S/gm)];
-  if (new Set(options.map(m => m[1]?.toUpperCase())).size >= 2) return 'mcq';
+  const options = [...text.matchAll(/^[\t ]*([A-Ha-h1-8])[.)][\t ]+\S/gm)];
+  const hasLetterOptions = options.some(m => /^[A-Ha-h]$/.test(m[1] ?? ''));
+  const hasChoiceQuestion = /\?|\b(?:which|choose|select|correct option|multiple.choice)\b/i.test(text.split(/\n[\t ]*[A-Ha-h1-8][.)]/)[0] ?? text);
+  if (new Set(options.map(m => m[1]?.toUpperCase())).size >= 2 && (hasLetterOptions || hasChoiceQuestion)) return 'mcq';
   if (/```|\b(?:write|create|implement|debug|fix|develop|generate)\b.{0,70}\b(?:code|program|function|algorithm|script|class)\b|\b(?:traceback|syntaxerror|segmentation fault)\b|\b(?:def \w+\(|public static void|#include|console\.log\(|function \w+\(|SELECT .+ FROM)\b/is.test(text)) return 'code';
   return 'descriptive';
 }
@@ -38,7 +40,7 @@ export function parseAnswer(raw: string, type: AnswerType, config: Config, quest
     if (answer.language !== config.language || /^\s*```/.test(answer.code)) throw new AssistantError('response', 'AI returned an invalid response');
   }
   if (answer.type === 'mcq') {
-    if (question && ![...question.matchAll(/^\s*([A-Ha-h1-8])[.)]\s+/gm)].some(m => m[1]?.toUpperCase() === answer.answer)) throw new AssistantError('response', 'AI returned an invalid option');
+    if (question && ![...question.matchAll(/^[\t ]*([A-Ha-h1-8])[.)][\t ]+/gm)].some(m => m[1]?.toUpperCase() === answer.answer)) throw new AssistantError('response', 'AI returned an invalid option');
     if (!config.explanations) delete answer.explanation;
   }
   return answer;

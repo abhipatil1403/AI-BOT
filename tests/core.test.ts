@@ -10,6 +10,7 @@ describe('clipboard pipeline', () => {
     ['Which is true?\n1) first\n2) second', 'mcq'],
     ['Write a Python program to reverse a string', 'code'],
     ['Implement a function to add two numbers', 'code'],
+    ['Write a program to add numbers.\n1. Read the inputs\n2. Print the sum', 'code'],
     ['What is photosynthesis?', 'descriptive'],
     ['Explain what a code of conduct means', 'descriptive']
   ])('classifies %s', (text, type) => expect(classify(text)).toBe(type));

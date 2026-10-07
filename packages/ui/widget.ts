@@ -12,7 +12,7 @@ export const widgetCSS = `
 .dot:focus-visible,button:focus-visible { outline:2px solid #137b57; outline-offset:2px; }
 @keyframes pulse { 50% { opacity:.25; transform:scale(.75); } }
 @media(prefers-reduced-motion:reduce) { .dot.processing::after { animation:none; background:#bb923d; } }
-.panel { width:100%; max-height:288px; min-height:0; overflow:auto; padding:14px 16px; background:#f6faf7; border:1px solid #c7d8ce; border-radius:14px; box-shadow:0 4px 16px #102d2520; }
+.panel { width:100%; flex-shrink:0; max-height:288px; min-height:0; overflow:auto; padding:14px 16px; background:#f6faf7; border:1px solid #c7d8ce; border-radius:14px; box-shadow:0 4px 16px #102d2520; }
 .panel[hidden] { display:none; } .label { font-size:10px; font-weight:700; color:#59796a; text-transform:uppercase; letter-spacing:1.3px; margin-bottom:6px; }
 .answer { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; } pre.answer { font:12px/1.7 Consolas,monospace; max-height:220px; overflow:auto; tab-size:4; }
 .copy { margin-top:10px; font:600 12px "Segoe UI",sans-serif; border:1px solid #abcabb; color:#165b44; background:#e8f3ec; border-radius:6px; padding:6px 12px; cursor:pointer; }
@@ -98,7 +98,10 @@ export class Widget {
       this.copy.hidden = value?.type !== 'code' || state.phase !== 'ready';
       this.explanation.textContent = value?.type === 'mcq' ? value.explanation ?? '' : '';
     } else { this.answer.textContent = ''; this.explanation.textContent = ''; }
-    this.actions.resize(show ? (state.answer?.type === 'mcq' && !intentional ? 300 : 420) : 40, show ? (state.answer?.type === 'mcq' && !intentional ? 160 : 340) : 40);
+    const width = show ? (state.answer?.type === 'mcq' && !intentional ? 300 : 420) : 40;
+    this.panel.style.width = `${width - 8}px`;
+    const height = show ? Math.min(340, Math.ceil(this.panel.getBoundingClientRect().height) + 46) : 40;
+    this.actions.resize(width, height);
   }
   destroy(): void { clearTimeout(this.timer); this.root.remove(); }
 }

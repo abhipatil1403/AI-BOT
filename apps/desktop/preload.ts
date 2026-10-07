@@ -11,7 +11,8 @@ const api: DesktopAPI = {
   rotatePairing: () => ipcRenderer.invoke('pairing:rotate'),
   trigger: () => ipcRenderer.invoke('assistant:trigger'),
   copyCode: requestId => ipcRenderer.invoke('assistant:copy', requestId),
-  resizeWidget: (width, height) => ipcRenderer.send('widget:resize', width, height),
+  dismissAnswer: requestId => ipcRenderer.invoke('assistant:dismiss', requestId),
+  resizeWidget: (width, height, visible) => ipcRenderer.send('widget:resize', width, height, visible),
   onState: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const state = stateSchema.safeParse(value); if (state.success) callback(state.data);

@@ -14,6 +14,12 @@ export class Controller {
     this.pending?.abort(); this.pending = undefined;
     this.state = { phase: 'idle', requestId: this.state.requestId + 1, config, updatedAt: Date.now() }; this.publish(this.state);
   }
+  dismiss(requestId: number): boolean {
+    if (requestId !== this.state.requestId || !['ready', 'error'].includes(this.state.phase)) return false;
+    this.clipboardSequence++; this.pending?.abort(); this.pending = undefined;
+    this.state = { phase: 'idle', requestId: requestId + 1, config: this.state.config, updatedAt: Date.now() };
+    this.publish(this.state); return true;
+  }
   async trigger(): Promise<void> {
     if (Date.now() - this.lastTrigger < 300) return;
     this.lastTrigger = Date.now();

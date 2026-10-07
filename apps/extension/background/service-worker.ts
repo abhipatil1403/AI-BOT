@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((value: unknown, sender, respond) => {
     return true;
   }
   if (message.kind === 'layout' && overlayPage(sender) && sender.tab?.id !== undefined) {
-    if (typeof message.width !== 'number' || typeof message.height !== 'number' || message.width < 40 || message.width > 440 || message.height < 40 || message.height > 360) return;
+    if (typeof message.width !== 'number' || typeof message.height !== 'number' || !Number.isInteger(message.width) || !Number.isInteger(message.height) || message.width < 18 || message.width > 320 || message.height < 18 || message.height > 220) return;
     if (!['bottom-right', 'bottom-left', 'top-right', 'top-left'].includes(message.position ?? '')) return;
     void chrome.tabs.sendMessage(sender.tab.id, { kind: 'layout', width: message.width, height: message.height, position: message.position, hidden: message.hidden === true }).catch(() => {});
     respond({ ok: true });
@@ -25,6 +25,10 @@ chrome.runtime.onMessage.addListener((value: unknown, sender, respond) => {
   if (message.kind === 'copy' && overlayPage(sender)) {
     const copy = copyRequestSchema.safeParse({ requestId: message.requestId }); if (!copy.success) return;
     void bridgeRequest('/v1/copy', 'POST', copy.data).then(() => respond({ ok: true })).catch(() => respond({ ok: false, error: 'Answer changed or copy failed. Try again' })); return true;
+  }
+  if (message.kind === 'dismiss' && overlayPage(sender)) {
+    const dismiss = copyRequestSchema.safeParse({ requestId: message.requestId }); if (!dismiss.success) return;
+    void bridgeRequest('/v1/dismiss', 'POST', dismiss.data).then(() => respond({ ok: true })).catch(() => respond({ ok: false })); return true;
   }
   if (message.kind === 'settings' && settingsPage(sender)) {
     void bridgeRequest('/v1/settings', 'POST').then(() => respond({ ok: true })).catch((error: unknown) => respond({ ok: false, error: error instanceof Error ? error.message : 'Desktop connection failed' })); return true;

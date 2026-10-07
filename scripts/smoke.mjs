@@ -31,6 +31,12 @@ try {
   assert(settings, 'Settings window launched');
   await settings.locator('#connection').filter({ hasText: /Setup needed|Provider configured/ }).waitFor();
   const widget = await desktopWindow(page => page.url().endsWith('widget.html')); assert(widget, 'Widget window launched');
+  await expect(widget.locator('.dot')).toBeHidden();
+  assert(await desktop.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows().find(window => window.getTitle() === 'AI Quick Answer widget')?.isVisible()), 'Idle native surface is hidden');
+  await widget.evaluate(() => {
+    globalThis.__smokePhases = [];
+    window.assistant.onState(state => globalThis.__smokePhases.push(state.phase));
+  });
   if (process.platform === 'win32') {
     for (const enabled of [true, false, true]) {
       await settings.evaluate(async enabled => {
@@ -144,7 +150,21 @@ try {
   await expect(widget.locator('.panel')).toBeHidden();
   await widget.locator('.dot').hover(); await widget.locator('.answer').filter({ hasText: 'Plants use light' }).waitFor();
   assert.equal(await desktop.evaluate(({ clipboard }) => clipboard.readText()), text, 'Hotkey never changes clipboard');
-  await widget.screenshot({ path: join(output, 'descriptive.png') });
+  await expect.poll(() => widget.evaluate(() => window.innerWidth)).toBe(226);
+  await expect.poll(() => widget.evaluate(() => {
+    const bounds = document.querySelector('.panel').getBoundingClientRect();
+    return bounds.top >= 0 && bounds.left >= 0 && bounds.bottom <= window.innerHeight;
+  })).toBe(true);
+  await widget.screenshot({ path: join(output, 'descriptive.png'), omitBackground: true });
+  const design = await widget.evaluate(() => ({
+    marker: window.getComputedStyle(document.querySelector('.dot'), '::after').width,
+    background: window.getComputedStyle(document.querySelector('.panel')).backgroundColor,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    phases: globalThis.__smokePhases
+  }));
+  assert.equal(design.marker, '6px'); assert.equal(design.background, 'rgba(0, 0, 0, 0)');
+  assert(design.width <= 286 && design.height <= 204); assert(design.phases.includes('processing'));
   assert.equal(await desktop.evaluate(() => globalThis.__smokeRequests), 1, 'One native paste request');
   console.log('PASS: actual Ctrl+V preserves paste and drives clipboard → provider → hover answer');
 
@@ -153,16 +173,19 @@ try {
   await desktop.evaluate(({ clipboard }) => clipboard.writeText('Capital of France?\nA. Berlin\nB. Paris\nC. Rome'));
   await settings.evaluate(() => window.assistant.trigger());
   await widget.locator('.answer').filter({ hasText: 'B. Paris' }).waitFor();
-  await widget.screenshot({ path: join(output, 'mcq.png') });
+  await widget.screenshot({ path: join(output, 'mcq.png'), omitBackground: true });
+  await widget.locator('.dot').hover();
   await widget.locator('.panel').waitFor({ state: 'hidden', timeout: 8000 });
-  await widget.locator('.dot.idle').waitFor();
+  await expect(widget.locator('.dot')).toBeHidden();
+  await widget.evaluate(() => document.querySelector('.assistant-widget').dispatchEvent(new window.MouseEvent('mouseenter')));
+  await expect(widget.locator('.panel')).toBeHidden();
   await new Promise(resolve => setTimeout(resolve, 350));
   await desktop.evaluate(({ clipboard }) => clipboard.writeText('Write a program to add two numbers'));
   await settings.evaluate(() => window.assistant.trigger());
   await widget.locator('.dot.ready').waitFor(); await widget.locator('.dot').hover();
   await widget.locator('.copy').waitFor(); await widget.locator('.copy').click();
   assert.equal(await desktop.evaluate(({ clipboard }) => clipboard.readText()), 'def add(a, b):\n    return a + b\n');
-  await widget.screenshot({ path: join(output, 'code.png') });
+  await widget.screenshot({ path: join(output, 'code.png'), omitBackground: true });
   assert.equal(await desktop.evaluate(() => globalThis.__smokeRequests), 3, 'One request per answer mode');
   console.log('PASS: all answer modes and exact raw code copy');
 
@@ -186,15 +209,26 @@ try {
   assert.equal(await page.locator('body').innerText(), 'Assistant test page', 'Answer is not in page DOM');
   await page.screenshot({ path: join(output, 'extension.png') });
   console.log('PASS: actual MV3 extension pairs and renders authenticated companion state');
+  await page.locator('#paste').hover();
+  await new Promise(resolve => setTimeout(resolve, 5500));
+  await frame.locator('.dot').hover(); await frame.locator('.answer').filter({ hasText: 'def add' }).waitFor();
+  await frame.locator('.close').click();
+  await page.locator('iframe[title="AI Quick Answer"]').waitFor({ state: 'hidden' });
+  await expect(widget.locator('.dot')).toBeHidden();
+  console.log('PASS: code survives hover changes and MCQ duration; manual cross dismisses both clients');
 
   await settings.evaluate(async () => {
     const data = await window.assistant.settings(); await window.assistant.saveConfig({ ...data.config, visibility: 'always', sharing: true, captureProtection: true });
   });
+  await new Promise(resolve => setTimeout(resolve, 350));
+  await desktop.evaluate(({ clipboard }) => clipboard.writeText('What is photosynthesis?'));
+  await settings.evaluate(() => window.assistant.trigger());
+  await widget.locator('.dot.ready').waitFor();
   await page.locator('iframe[title="AI Quick Answer"]').waitFor({ state: 'hidden' });
-  assert(await desktop.evaluate(({ BrowserWindow }) => {
+  await expect.poll(() => desktop.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find(window => window.getTitle() === 'AI Quick Answer widget');
     return window?.isVisible() && window.isContentProtected();
-  }), 'Protected desktop remains visible while browser overlay is hidden');
+  })).toBe(true);
   console.log('PASS: capture exclusion keeps desktop visible and hides browser overlay while sharing');
 
   await settings.evaluate(async () => {
@@ -213,8 +247,10 @@ try {
   console.log('PASS: sharing hides both clients; Gemini switching and session adapter');
   await options.locator('#forget').click(); await options.locator('#status').filter({ hasText: 'Disconnected' }).waitFor();
   const count = await desktop.evaluate(() => globalThis.__smokeRequests);
-  if (count !== 4) console.log('Request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds));
-  assert.equal(count, 4, 'Each user trigger produces one request');
+  await frame.locator('.close').click();
+  await page.locator('iframe[title="AI Quick Answer"]').waitFor({ state: 'hidden' }); await expect(widget.locator('.dot')).toBeHidden();
+  if (count !== 5) console.log('Request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds));
+  assert.equal(count, 5, 'Each user trigger produces one request');
   console.log(`Smoke passed: ${count} fixture requests. Screenshots in test-results/.`);
 } finally {
   await browser?.close();

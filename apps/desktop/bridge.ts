@@ -30,6 +30,15 @@ export function startBridge(controller: Controller, token: () => string, openSet
       void controller.trigger(); res.writeHead(202).end('{}');
     } else if (req.method === 'POST' && req.url === '/v1/settings') {
       openSettings(); res.end('{}');
+    } else if (req.method === 'POST' && req.url === '/v1/dismiss') {
+      try {
+        let body = '';
+        for await (const chunk of req) { body += String(chunk); if (body.length > 128) { res.writeHead(413).end('{}'); return; } }
+        const parsed = copyRequestSchema.safeParse(JSON.parse(body));
+        if (!parsed.success) { res.writeHead(400).end('{}'); return; }
+        if (!controller.dismiss(parsed.data.requestId)) { res.writeHead(409).end('{}'); return; }
+        res.end('{}');
+      } catch { res.writeHead(400).end('{}'); }
     } else if (req.method === 'POST' && req.url === '/v1/copy') {
       if (!copyCode) { res.writeHead(405).end('{}'); return; }
       try {

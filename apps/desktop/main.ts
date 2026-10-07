@@ -71,7 +71,7 @@ function openSettings(): void {
 function positionWidget(): void {
   if (!widgetWindow) return;
   const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  const [width = 40, height = 40] = widgetWindow.getSize();
+  const [width = 18, height = 18] = widgetWindow.getSize();
   const left = config.position.endsWith('left'); const top = config.position.startsWith('top');
   widgetWindow.setPosition(left ? area.x + 16 : area.x + area.width - width - 16, top ? area.y + 16 : area.y + area.height - height - 16);
 }
@@ -81,8 +81,7 @@ function visibleState(): AssistantState {
 }
 function publish(): void {
   if (!controller) return;
-  if (config.visibility === 'sharing' && config.sharing) widgetWindow?.hide();
-  else if (widgetWindow && !widgetWindow.isVisible()) widgetWindow.showInactive();
+  if (controller.state.phase === 'idle' || (config.visibility === 'sharing' && config.sharing)) widgetWindow?.hide();
   const state = visibleState();
   for (const window of [widgetWindow, settingsWindow]) if (window && !window.isDestroyed()) window.webContents.send('assistant:state', state);
 }
@@ -141,16 +140,24 @@ function registerIPC(): void {
   handle('credential:remove', true, provider => { const name = z.enum(['groq', 'gemini']).parse(provider); storage.removeSecret(name); providers.delete(name); controller.configure(config); });
   handle('pairing:rotate', true, () => { const next = randomBytes(32).toString('hex'); storage.setSecret('pairing', next); pairingToken = next; return next; });
   handle('assistant:trigger', false, () => { void controller.trigger(); });
+  handle('assistant:dismiss', false, requestId => {
+    const parsed = copyRequestSchema.safeParse({ requestId });
+    if (!parsed.success || !controller.dismiss(parsed.data.requestId)) throw new AssistantError('dismiss', 'Answer changed. Try again');
+  });
   handle('assistant:copy', false, async requestId => {
     const parsed = copyRequestSchema.safeParse({ requestId }); const state = controller.state;
     if (!parsed.success || state.requestId !== parsed.data.requestId || state.phase !== 'ready' || state.answer?.type !== 'code') throw new AssistantError('copy', 'Answer changed. Try copying again');
     await clipboard.writeText(state.answer.code);
   });
   ipcMain.on('assistant:subscribe', event => { if (authorized(event)) event.sender.send('assistant:state', visibleState()); });
-  ipcMain.on('widget:resize', (event, width: unknown, height: unknown) => {
+  ipcMain.on('widget:resize', (event, width: unknown, height: unknown, visible: unknown) => {
     if (!authorized(event) || event.sender.id !== widgetWindow?.webContents.id) return;
-    if (typeof width !== 'number' || typeof height !== 'number' || !Number.isInteger(width) || !Number.isInteger(height) || width < 40 || width > 440 || height < 40 || height > 360) return;
+    if (typeof width !== 'number' || typeof height !== 'number' || typeof visible !== 'boolean' || !Number.isInteger(width) || !Number.isInteger(height) || width < 18 || width > 320 || height < 18 || height > 220) return;
     widgetWindow.setSize(width, height); positionWidget();
+    const state = controller.state;
+    const expired = state.phase === 'ready' && state.answer?.type === 'mcq' && config.duration > 0 && Date.now() >= state.updatedAt + config.duration * 1000;
+    if (visible && state.phase !== 'idle' && !expired && !(config.visibility === 'sharing' && config.sharing)) widgetWindow.showInactive();
+    else widgetWindow.hide();
   });
 }
 
@@ -161,7 +168,7 @@ async function start(): Promise<void> {
   storage.setSecret('pairing', pairingToken);
   controller = new Controller(config, () => clipboard.readText(), providerFor, publish);
   registerIPC();
-  widgetWindow = new BrowserWindow({ width: 40, height: 40, frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true, show: false, hasShadow: false, title: 'AI Quick Answer widget', webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, devTools: !app.isPackaged } });
+  widgetWindow = new BrowserWindow({ width: 18, height: 18, frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true, show: false, hasShadow: false, title: 'AI Quick Answer widget', webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false, devTools: !app.isPackaged } });
   widgetWindow.setAlwaysOnTop(true, 'floating');
   secureWindow(widgetWindow, 'widget.html');
   widgetWindow.once('ready-to-show', () => { positionWidget(); publish(); });

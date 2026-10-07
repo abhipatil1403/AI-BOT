@@ -7,7 +7,11 @@ const widget = new Widget(document.getElementById('widget')!, {
     const response = await chrome.runtime.sendMessage({ kind: 'copy', requestId: current.requestId }) as { ok: boolean };
     if (!response.ok) throw new Error('Copy failed');
   },
-  resize: (width, height) => { void chrome.runtime.sendMessage({ kind: 'layout', width, height, position: current.config.position, hidden: hideBrowserOverlay(current.config) }).catch(() => {}); }
+  dismiss: async requestId => {
+    const response = await chrome.runtime.sendMessage({ kind: 'dismiss', requestId }) as { ok: boolean };
+    if (!response.ok) throw new Error('Dismiss failed');
+  },
+  resize: (width, height, visible) => { void chrome.runtime.sendMessage({ kind: 'layout', width, height, position: current.config.position, hidden: !visible || hideBrowserOverlay(current.config) }).catch(() => {}); }
 });
 let stopped = false;
 async function poll(): Promise<void> {
@@ -16,8 +20,8 @@ async function poll(): Promise<void> {
   try {
     const response = await chrome.runtime.sendMessage({ kind: 'state' }) as { ok: boolean; state?: AssistantState; error?: string };
     if (response.ok && response.state) { current = response.state; connected = true; }
-    else if (current.phase !== 'error' || current.error !== response.error) current = { ...current, phase: 'error', answer: undefined, error: response.error ?? 'Desktop connection failed', updatedAt: Date.now() };
-  } catch { current = { ...current, phase: 'error', answer: undefined, error: 'Extension disconnected. Reload this page', updatedAt: Date.now() }; }
+    else if (current.phase === 'processing') current = { ...current, phase: 'error', answer: undefined, error: response.error ?? 'Desktop connection failed', updatedAt: Date.now() };
+  } catch { if (current.phase === 'processing') current = { ...current, phase: 'error', answer: undefined, error: 'Extension disconnected. Reload this page', updatedAt: Date.now() }; }
   widget.update(current);
   setTimeout(() => { void poll(); }, connected ? 800 : 5000);
 }

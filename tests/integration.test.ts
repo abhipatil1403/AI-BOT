@@ -68,6 +68,19 @@ describe('desktop bridge and clipboard requests', () => {
     await controller.trigger(); expect(controller.state.phase).toBe('idle'); expect(generate).not.toHaveBeenCalled();
     await controller.trigger(); expect(clipboard).toHaveBeenCalledTimes(1);
   });
+  it('dismisses only the current answer and invalidates code copy across clients', async () => {
+    const controller = new Controller(defaultConfig, () => 'Write a program to add two numbers', () => ({ generate: async () => '{"type":"code","language":"python","code":"print(2)"}', validate: async () => {} }), vi.fn());
+    await controller.trigger(); const requestId = controller.state.requestId;
+    const copy = vi.fn(); const port = await freePort(); servers.push(await startBridge(controller, () => 'token', vi.fn(), port, copy));
+    const base = 'http://127.0.0.1:' + port; const headers = { Authorization: 'Bearer token', 'Content-Type': 'application/json' };
+    expect((await fetch(base + '/v1/dismiss', { method: 'POST', headers, body: JSON.stringify({ requestId: requestId - 1 }) })).status).toBe(409);
+    expect(controller.state.phase).toBe('ready');
+    expect((await fetch(base + '/v1/dismiss', { method: 'POST', headers, body: JSON.stringify({ requestId, text: 'untrusted' }) })).status).toBe(400);
+    expect((await fetch(base + '/v1/dismiss', { method: 'POST', headers, body: JSON.stringify({ requestId }) })).status).toBe(200);
+    expect(controller.state.phase).toBe('idle'); expect(controller.state.answer).toBeUndefined();
+    expect((await fetch(base + '/v1/copy', { method: 'POST', headers, body: JSON.stringify({ requestId }) })).status).toBe(409); expect(copy).not.toHaveBeenCalled();
+    expect((await fetch(base + '/v1/dismiss', { method: 'POST', headers, body: JSON.stringify({ requestId }) })).status).toBe(409);
+  });
   it('cancels old requests and does not reveal stale responses after switching providers', async () => {
     let resolve: (value: string) => void = () => {};
     const provider: AIProvider = { generate: () => new Promise<string>(r => { resolve = r; }), validate: vi.fn() };

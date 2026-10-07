@@ -36,6 +36,7 @@ try {
   await desktop.evaluate(() => {
     const actualFetch = globalThis.fetch;
     globalThis.__smokeRequests = 0;
+    globalThis.__smokeRequestKinds = [];
     globalThis.fetch = async (url, init) => {
       const address = String(url);
       if (address.startsWith('http://127.0.0.1:')) return actualFetch(url, init);
@@ -53,6 +54,7 @@ try {
         : system.includes('"type":"mcq"') ? { type: 'mcq', answer: 'B', text: 'Paris' }
         : { type: 'descriptive', answer: question.includes('photosynthesis') ? 'Plants use light to turn water and carbon dioxide into sugars.' : 'Paris' };
       const text = JSON.stringify(answer);
+      globalThis.__smokeRequestKinds.push({ provider: address.includes('api.groq.com') ? 'groq' : 'gemini', type: answer.type, retry: system.includes('Your previous output was invalid') });
       if (address.includes('api.groq.com')) return new Response(JSON.stringify({ choices: [{ message: { content: text }, finish_reason: 'stop' }] }));
       return new Response(`)]}'\n123\n${JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [['rcid', [text]]]])]])}\n`);
     };
@@ -63,8 +65,14 @@ try {
   assert.equal(await settings.locator('#groq-key').inputValue(), '');
   const vault = await readFile(join(profile, 'vault.json'), 'utf8'); assert(!vault.includes('synthetic_test_key_for_smoke'), 'DPAPI stores ciphertext');
   const diagnostics = await settings.evaluate(() => window.assistant.settings()); assert(diagnostics.diagnostics.encryption, 'Actual OS encryption available');
+  assert(diagnostics.diagnostics.bridge.startsWith('Listening'), 'Close the already-running desktop companion before this isolated smoke test; port 47831 must be free');
   await settings.screenshot({ path: join(output, 'settings.png'), fullPage: true });
   console.log('Smoke: Settings and real DPAPI verified');
+
+  // Prior interactive runs can leave the pointer over the desktop dot.
+  // Establish the non-hovered, non-focused precondition before requesting.
+  await widget.evaluate(() => document.activeElement?.blur());
+  await widget.evaluate(() => document.querySelector('.assistant-widget').dispatchEvent(new window.MouseEvent('mouseleave')));
 
   // A test-owned native window receives actual injected Ctrl+V. This verifies
   // the passive OS hook and ordinary paste together, not a JS shortcut handler.
@@ -77,6 +85,7 @@ try {
   const text = 'What is photosynthesis?';
   await desktop.evaluate(({ clipboard }) => clipboard.writeText('What is photosynthesis?'));
   await target.locator('#target').focus();
+  await target.bringToFront();
   await target.evaluate(() => {
     globalThis.__pasteEvents = [];
     document.addEventListener('keydown', event => globalThis.__pasteEvents.push({ key: event.key, ctrl: event.ctrlKey }));
@@ -92,6 +101,10 @@ try {
       globalThis.__smokeKeys = [];
       const monitor = event => { if (event.keycode === UiohookKey.V) globalThis.__smokeKeys.push({ ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, meta: event.metaKey, focused: BrowserWindow.getFocusedWindow()?.getTitle() }); };
       uIOhook.on('keydown', monitor);
+      // Acquire native and renderer focus immediately before OS input, after
+      // all Playwright setup calls that can activate another window.
+      globalThis.__smokeTarget.show(); globalThis.__smokeTarget.focus(); globalThis.__smokeTarget.webContents.focus();
+      await new Promise(resolve => setTimeout(resolve, 250));
       uIOhook.keyToggle(UiohookKey.Ctrl, 'down');
       await new Promise(resolve => setTimeout(resolve, 100));
       uIOhook.keyToggle(UiohookKey.V, 'down');
@@ -111,10 +124,11 @@ try {
     console.log('Hotkey diagnostic:', await desktop.evaluate(() => ({ requests: globalThis.__smokeRequests, keys: globalThis.__smokeKeys })), await widget.locator('.dot').getAttribute('class'));
     throw error;
   });
-  assert.equal(await widget.locator('.panel').evaluate(node => node.hidden), true, 'Descriptive answer initially hidden');
+  await expect(widget.locator('.panel')).toBeHidden();
   await widget.locator('.dot').hover(); await widget.locator('.answer').filter({ hasText: 'Plants use light' }).waitFor();
   assert.equal(await desktop.evaluate(({ clipboard }) => clipboard.readText()), text, 'Hotkey never changes clipboard');
   await widget.screenshot({ path: join(output, 'descriptive.png') });
+  assert.equal(await desktop.evaluate(() => globalThis.__smokeRequests), 1, 'One native paste request');
   console.log('PASS: actual Ctrl+V preserves paste and drives clipboard → provider → hover answer');
 
   // Requests via explicit test UI actions exercise the same production pipeline.
@@ -132,6 +146,7 @@ try {
   await widget.locator('.copy').waitFor(); await widget.locator('.copy').click();
   assert.equal(await desktop.evaluate(({ clipboard }) => clipboard.readText()), 'def add(a, b):\n    return a + b\n');
   await widget.screenshot({ path: join(output, 'code.png') });
+  assert.equal(await desktop.evaluate(() => globalThis.__smokeRequests), 3, 'One request per answer mode');
   console.log('PASS: all answer modes and exact raw code copy');
 
   const extension = resolve('dist/extension');
@@ -140,7 +155,10 @@ try {
   const extensionId = new URL(worker.url()).host;
   const options = await browser.newPage(); await options.goto(`chrome-extension://${extensionId}/options/index.html`);
   await options.locator('#token').fill(diagnostics.pairingToken); await options.locator('#save').click();
-  await options.locator('#status').filter({ hasText: 'Connected.' }).waitFor();
+  await options.locator('#status').filter({ hasText: 'Connected.' }).waitFor().catch(async error => {
+    console.log('Pairing diagnostic:', await options.locator('#status').innerText(), (await settings.evaluate(() => window.assistant.settings())).diagnostics.bridge);
+    throw error;
+  });
   const page = await browser.newPage(); await page.goto(`http://assistant-smoke.test:${sitePort}/`);
   const frame = page.frameLocator('iframe[title="AI Quick Answer"]');
   await frame.locator('.dot.ready').waitFor({ timeout: 20000 });
@@ -159,7 +177,7 @@ try {
   const desktopHidden = await desktop.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows().find(window => window.getTitle() === 'AI Quick Answer widget')?.isVisible()); assert(desktopHidden);
   await settings.evaluate(async () => {
     const data = await window.assistant.settings(); await window.assistant.saveConfig({ ...data.config, visibility: 'always', sharing: false, provider: 'gemini' });
-    await window.assistant.saveCredential('gemini', '{"__Secure-1PSID":"synthetic-test-cookie"}'); await window.assistant.validateCredential('gemini', '');
+    await window.assistant.saveCredential('gemini', 'Cookie: __Secure-1PSID=synthetic-test-cookie'); await window.assistant.validateCredential('gemini', '');
   });
   await new Promise(resolve => setTimeout(resolve, 350));
   await desktop.evaluate(({ clipboard }) => clipboard.writeText('What is photosynthesis?'));
@@ -167,7 +185,9 @@ try {
   assert.equal((await settings.evaluate(() => window.assistant.settings())).config.provider, 'gemini');
   console.log('PASS: sharing hides both clients; Gemini switching and session adapter');
   await options.locator('#forget').click(); await options.locator('#status').filter({ hasText: 'Disconnected' }).waitFor();
-  const count = await desktop.evaluate(() => globalThis.__smokeRequests); assert.equal(count, 4, 'Each user trigger produces one request');
+  const count = await desktop.evaluate(() => globalThis.__smokeRequests);
+  if (count !== 4) console.log('Request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds));
+  assert.equal(count, 4, 'Each user trigger produces one request');
   console.log(`Smoke passed: ${count} fixture requests. Screenshots in test-results/.`);
 } finally {
   await browser?.close();

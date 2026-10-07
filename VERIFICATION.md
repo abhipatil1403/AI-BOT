@@ -32,4 +32,4 @@ npm run test:e2e
 Remove-Item Env:AI_BOT_SMOKE_EXE
 ```
 
-Use an interactive Windows desktop without concurrent typing during native input tests. `AI_BOT_SMOKE_NATIVE=manual` pauses at the paste target for a real Ctrl+V chord instead of the test runner's native input driver. Test profiles are temporary; clipboard text is restored when it still contains test text. Screenshots stay in ignored `test-results/` and are not committed.
+Quit any existing companion first so port 47831 is free. Use an interactive Windows desktop without concurrent typing during native input tests. `AI_BOT_SMOKE_NATIVE=manual` pauses at the paste target for a real Ctrl+V chord instead of the test runner's native input driver. Test profiles are temporary; clipboard text is restored when it still contains test text. Screenshots stay in ignored `test-results/` and are not committed.

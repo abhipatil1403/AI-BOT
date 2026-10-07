@@ -4,6 +4,8 @@ export class AssistantError extends Error {
   constructor(public readonly code: string, message: string) { super(message); this.name = 'AssistantError'; }
 }
 export function sanitizeInput(raw: string): string {
+  // Removing control characters is intentional input sanitization.
+  // eslint-disable-next-line no-control-regex
   const text = raw.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').trim();
   if (!text) throw new AssistantError('empty', 'No text copied');
   if (text.length > 20000) throw new AssistantError('size', 'Copied text is too long (20,000 characters maximum)');

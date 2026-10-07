@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "AI Quick Answer",
+  "version": "1.0.0",
+  "description": "A tiny clipboard assistant connected to your Windows companion.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:47831/*"],
+  "background": { "service_worker": "background/service-worker.js" },
+  "action": { "default_popup": "popup/index.html", "default_title": "AI Quick Answer" },
+  "options_page": "options/index.html",
+  "commands": { "answer-clipboard": { "suggested_key": { "default": "Ctrl+Shift+Y" }, "description": "Answer the clipboard with the desktop companion" } },
+  "content_scripts": [{ "matches": ["https://*/*", "http://*/*"], "exclude_matches": ["http://127.0.0.1/*", "http://localhost/*"], "js": ["content/content-script.js"], "run_at": "document_idle", "all_frames": false }],
+  "web_accessible_resources": [{ "resources": ["overlay/index.html", "overlay/widget.js", "overlay/widget.css"], "matches": ["https://*/*", "http://*/*"] }],
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:47831; style-src 'self' 'unsafe-inline'; base-uri 'none'" }
+}

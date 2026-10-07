@@ -3,11 +3,11 @@
 Verified on Windows on 8 October 2026:
 
 - Lint and strict TypeScript checking pass.
-- 91 unit, provider, integration, keyboard and widget tests pass, including cookie formats, current Groq model validation, safe HTTP errors, controlled JSON-generation retries, actual HTTP responses with large cookie headers and capture-protection configuration migration/browser redaction.
+- 113 unit, provider, integration, keyboard, image acquisition and widget tests pass, including cookie formats, current Groq model validation, safe HTTP errors, controlled JSON-generation retries, actual HTTP responses with large cookie headers and capture-protection configuration migration/browser redaction.
 - Both Electron and Chromium production builds succeed.
 - NSIS installer and portable EXE packaging succeeds without native compilation.
 - The packaged application (`release/win-unpacked/AI Quick Answer.exe`) launches with its actual ASAR bundle and N-API keyboard binary.
-- The packaged end-to-end smoke test passes: actual OS Ctrl+V pastes normally and triggers one clipboard request; descriptive hover, timed MCQ display, raw code copying, OS credential encryption, Gemini switching, MV3 pairing, extension rendering and user-controlled sharing visibility work.
+- The packaged 1.0.5 end-to-end smoke test passes using explicit clipboard actions: descriptive hover, timed MCQ display, raw code copying, OS credential encryption, Gemini switching, MV3 pairing, extension rendering and user-controlled sharing visibility work. Native OS Ctrl+V was verified in previous packaged versions; the latest run skips keyboard injection.
 - Dependency audit reports zero vulnerabilities.
 
 The smoke runner installs synthetic HTTP fixtures into the test process externally. Production provider code, credential storage, windows, OS clipboard/hotkey, and extension communication are real. No mock responses or mock provider branches exist in production bundles. Native Windows input was additionally verified using the computer-use tools against the test window.
@@ -17,6 +17,12 @@ Version 1.0.1 was also checked against **live Groq** using the user's locally sa
 Version 1.0.2 was checked against **live Gemini** using the explicitly supplied cookie export held only in memory. The old transport failed with UND_ERR_HEADERS_OVERFLOW; the bounded 64 KiB Gemini dispatcher successfully validated the session and returned descriptive, MCQ and Python code answers through the actual answer pipeline. No cookie values, session tokens or response bodies were logged or committed.
 
 The packaged 1.0.2 Settings screen also successfully validated both the supplied JSON export and its equivalent Cookie header against live Gemini, using an isolated profile without saving the credential. The packaged Ctrl+V and Chromium extension smoke test passed again after this fix.
+
+Version 1.0.5 was checked against **live Groq and Gemini** with synthetic image questions rendered to real PNGs. Both providers correctly returned MCQ, descriptive and Python code responses through the actual vision pipeline. Groq correctly selected option B for 2 + 2 and returned Paris for the descriptive question; Gemini did likewise. Credentials stayed in memory and were never logged or committed.
+
+The 1.0.5 packaged smoke run performs 12 fixture requests, including all three image answer types through the actual Windows image clipboard with both providers, plus the tray image-file action. The native file chooser alone is intercepted with a synthetic selected filename; file reading, decoding, resizing, provider upload and shared display use production code. Gemini performs one upload per image trigger. MCQ images expire after the selected two seconds, while image text/code survive that duration and are dismissed across both clients with ×. Windows capture exclusion is queried on Settings and on the active compact widget. The 6-pixel marker, transparent card background and unclipped content are verified. Fractional Windows DPI may round native dimensions by a few CSS pixels.
+
+`npm run package` now creates `release/extension/manifest.json` and `release/INSTALL.txt` alongside the desktop installers. This is the folder to load in Chromium; `release/win-unpacked` is an Electron application, not an extension.
 
 Version 1.0.3 passed the packaged smoke suite with the new Windows capture exclusion enabled. A separate process queried the actual native HWNDs using GetWindowDisplayAffinity: both Settings and widget returned 0x11 (WDA_EXCLUDEFROMCAPTURE), both returned 0x00 when disabled, and both returned 0x11 after re-enabling. During sharing mode the protected desktop remained visible and the Chromium overlay was hidden. The existing hide-both mode, actual OS Ctrl+V, all answer modes, exact code copying and MV3 pairing also passed. The extension archive contains manifest version 1.0.1.
 
@@ -42,4 +48,4 @@ npm run test:e2e
 Remove-Item Env:AI_BOT_SMOKE_EXE
 ```
 
-Quit any existing companion first so port 47831 is free. Use an interactive Windows desktop without concurrent typing during native input tests. `AI_BOT_SMOKE_NATIVE=manual` pauses at the paste target for a real Ctrl+V chord instead of the test runner's native input driver. Test profiles are temporary; clipboard text is restored when it still contains test text. Screenshots stay in ignored `test-results/` and are not committed.
+Quit any existing companion first so port 47831 is free. Use an interactive Windows desktop without concurrent typing during native input tests. `AI_BOT_SMOKE_NATIVE=manual` pauses at the paste target for a real Ctrl+V chord instead of the test runner's native input driver. `AI_BOT_SMOKE_NATIVE=skip` exercises explicit clipboard triggers and runs Chromium headlessly without synthesizing keyboard input. Test profiles are temporary; clipboard text/image is restored when it still contains test data. Screenshots stay in ignored `test-results/` and are not committed. On resource-constrained hosts, use `npm test -- --maxWorkers=2`.

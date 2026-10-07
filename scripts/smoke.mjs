@@ -35,7 +35,7 @@ try {
   assert(await desktop.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows().find(window => window.getTitle() === 'AI Quick Answer widget')?.isVisible()), 'Idle native surface is hidden');
   await widget.evaluate(() => {
     globalThis.__smokePhases = [];
-    window.assistant.onState(state => globalThis.__smokePhases.push(state.phase));
+    window.assistant.onState(state => { globalThis.__smokePhases.push(state.phase); globalThis.__smokeLastState = state; });
   });
   if (process.platform === 'win32') {
     for (const enabled of [true, false, true]) {
@@ -53,6 +53,10 @@ try {
     console.log('PASS: actual Windows capture exclusion on Settings; toggle restores WDA_NONE');
   }
   originalClipboard = await desktop.evaluate(({ clipboard }) => clipboard.readText());
+  await desktop.evaluate(async ({ clipboard }) => {
+    const item = (await clipboard.read()).find(item => item.types.includes('image/png'));
+    globalThis.__smokeOriginalImage = item ? await item.getType('image/png') : undefined;
+  });
 
   // Test-only HTTP fixtures installed externally into the running main process.
   // Production bundles contain no mock provider or synthetic-response branch.
@@ -60,24 +64,38 @@ try {
     const actualFetch = globalThis.fetch;
     globalThis.__smokeRequests = 0;
     globalThis.__smokeRequestKinds = [];
+    globalThis.__smokeImageUploads = 0;
     globalThis.fetch = async (url, init) => {
       const address = String(url);
       if (address.startsWith('http://127.0.0.1:')) return actualFetch(url, init);
       if (address === 'https://api.groq.com/openai/v1/models') return new Response('{"data":[{"id":"openai/gpt-oss-120b"}]}');
       if (address === 'https://gemini.google.com/app') return new Response('"SNlM0e":"synthetic-token","cfb2h":"synthetic-build","FdrFJe":"synthetic-session"');
-      let question; let system;
+      if (address === 'https://content-push.googleapis.com/upload') {
+        const file = init.body.get('file');
+        if (file?.type !== 'image/png' || file.size !== globalThis.__smokeImageBytes) throw new Error('Incorrect image upload');
+        globalThis.__smokeImageUploads++;
+        return new Response('/contrib_service/synthetic-image');
+      }
+      let question; let system; let image = false;
       if (address.includes('api.groq.com/openai/v1/chat/completions')) {
         const body = JSON.parse(init.body); system = body.messages[0].content; question = body.messages[1].content;
+        if (Array.isArray(question)) {
+          image = question[1]?.type === 'image_url' && body.model === 'qwen/qwen3.8-27b';
+          if (!image || !question[1].image_url.url.startsWith('data:image/png;base64,')) throw new Error('Missing image content');
+          question = question[0].text;
+        }
       } else if (address.includes('gemini.google.com/') && address.includes('StreamGenerate')) {
         const body = new URLSearchParams(init.body); const inner = JSON.parse(JSON.parse(body.get('f.req'))[1]);
         system = inner[0][0]; question = system;
+        image = inner[0][3]?.[0]?.[0]?.[0] === '/contrib_service/synthetic-image';
       } else throw new Error('Unexpected external request during smoke test');
       globalThis.__smokeRequests++;
-      const answer = system.includes('"type":"code"') ? { type: 'code', language: 'python', code: 'def add(a, b):\n    return a + b\n' }
-        : system.includes('"type":"mcq"') ? { type: 'mcq', answer: 'B', text: 'Paris' }
+      const kind = image ? globalThis.__smokeImageKind : system.includes('"type":"code"') ? 'code' : system.includes('"type":"mcq"') ? 'mcq' : 'descriptive';
+      const answer = kind === 'code' ? { type: 'code', language: 'python', code: 'def add(a, b):\n    return a + b\n' }
+        : kind === 'mcq' ? { type: 'mcq', answer: 'B', text: 'Paris' }
         : { type: 'descriptive', answer: question.includes('photosynthesis') ? 'Plants use light to turn water and carbon dioxide into sugars.' : 'Paris' };
       const text = JSON.stringify(answer);
-      globalThis.__smokeRequestKinds.push({ provider: address.includes('api.groq.com') ? 'groq' : 'gemini', type: answer.type, retry: system.includes('Your previous output was invalid') });
+      globalThis.__smokeRequestKinds.push({ provider: address.includes('api.groq.com') ? 'groq' : 'gemini', type: answer.type, image, retry: system.includes('Your previous output was invalid') });
       if (address.includes('api.groq.com')) return new Response(JSON.stringify({ choices: [{ message: { content: text }, finish_reason: 'stop' }] }));
       return new Response(`)]}'\n123\n${JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [['rcid', [text]]]])]])}\n`);
     };
@@ -99,14 +117,18 @@ try {
 
   // A test-owned native window receives actual injected Ctrl+V. This verifies
   // the passive OS hook and ordinary paste together, not a JS shortcut handler.
+  const text = 'What is photosynthesis?';
+  await desktop.evaluate(({ clipboard }) => clipboard.writeText('What is photosynthesis?'));
+  if (process.env.AI_BOT_SMOKE_NATIVE === 'skip') {
+    await settings.evaluate(() => window.assistant.trigger());
+    console.log('SKIP: native Ctrl+V; explicit clipboard action used without keyboard input');
+  } else {
   await desktop.evaluate(async ({ BrowserWindow }) => {
     const target = new BrowserWindow({ width: 480, height: 260, title: 'AI Quick Answer smoke target' });
     globalThis.__smokeTarget = target;
     await target.loadURL('data:text/html,<html><body><textarea id="target" autofocus></textarea></body></html>'); target.show(); target.focus(); target.webContents.focus();
   });
   const target = await desktopWindow(page => page.url().startsWith('data:text/html')); assert(target, 'Native paste target exists');
-  const text = 'What is photosynthesis?';
-  await desktop.evaluate(({ clipboard }) => clipboard.writeText('What is photosynthesis?'));
   await target.locator('#target').focus();
   await target.bringToFront();
   await target.evaluate(() => {
@@ -143,6 +165,7 @@ try {
     await target.screenshot({ path: join(output, 'paste-failure.png') });
     throw error;
   });
+  }
   await widget.locator('.dot.ready').waitFor().catch(async error => {
     console.log('Hotkey diagnostic:', await desktop.evaluate(() => ({ requests: globalThis.__smokeRequests, keys: globalThis.__smokeKeys })), await widget.locator('.dot').getAttribute('class'));
     throw error;
@@ -158,7 +181,9 @@ try {
     console.log('PASS: active compact widget and Settings both have native WDA_EXCLUDEFROMCAPTURE');
   }
   assert.equal(await desktop.evaluate(({ clipboard }) => clipboard.readText()), text, 'Hotkey never changes clipboard');
-  await expect.poll(() => widget.evaluate(() => window.innerWidth)).toBe(226);
+  // Windows can round native bounds by a few CSS pixels at fractional DPI.
+  await expect.poll(() => widget.evaluate(() => window.innerWidth >= 226 && window.innerWidth <= 230)).toBe(true);
+  assert.equal(await widget.locator('.panel').evaluate(panel => panel.style.width), '220px');
   await expect.poll(() => widget.evaluate(() => {
     const bounds = document.querySelector('.panel').getBoundingClientRect();
     return bounds.top >= 0 && bounds.left >= 0 && bounds.bottom <= window.innerHeight;
@@ -172,9 +197,9 @@ try {
     phases: globalThis.__smokePhases
   }));
   assert.equal(design.marker, '6px'); assert.equal(design.background, 'rgba(0, 0, 0, 0)');
-  assert(design.width <= 286 && design.height <= 204); assert(design.phases.includes('processing'));
+  assert(design.width <= 290 && design.height <= 208); assert(design.phases.includes('processing'));
   assert.equal(await desktop.evaluate(() => globalThis.__smokeRequests), 1, 'One native paste request');
-  console.log('PASS: actual Ctrl+V preserves paste and drives clipboard → provider → hover answer');
+  console.log(process.env.AI_BOT_SMOKE_NATIVE === 'skip' ? 'PASS: explicit clipboard action → provider → compact hover answer' : 'PASS: actual Ctrl+V preserves paste and drives clipboard → provider → hover answer');
 
   // Requests via explicit test UI actions exercise the same production pipeline.
   await new Promise(resolve => setTimeout(resolve, 350));
@@ -198,7 +223,7 @@ try {
   console.log('PASS: all answer modes and exact raw code copy');
 
   const extension = resolve('dist/extension');
-  browser = await chromium.launchPersistentContext(browserProfile, { channel: 'chromium', headless: false, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--host-resolver-rules=MAP assistant-smoke.test 127.0.0.1', '--no-proxy-server'] });
+  browser = await chromium.launchPersistentContext(browserProfile, { channel: 'chromium', headless: process.env.AI_BOT_SMOKE_NATIVE === 'skip', args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--host-resolver-rules=MAP assistant-smoke.test 127.0.0.1', '--no-proxy-server'] });
   let worker = browser.serviceWorkers()[0]; if (!worker) worker = await browser.waitForEvent('serviceworker');
   const extensionId = new URL(worker.url()).host;
   const options = await browser.newPage(); await options.goto(`chrome-extension://${extensionId}/options/index.html`);
@@ -255,18 +280,93 @@ try {
   console.log('PASS: sharing hides both clients; Gemini switching and session adapter');
   await frame.locator('.close').click();
   await page.locator('iframe[title="AI Quick Answer"]').waitFor({ state: 'hidden' }); await expect(widget.locator('.dot')).toBeHidden();
+  const imageFixture = (await page.locator('h1').screenshot()).toString('base64');
+  for (const provider of ['groq', 'gemini']) {
+    for (const type of ['mcq', 'descriptive', 'code']) {
+      await settings.evaluate(async provider => {
+        const data = await window.assistant.settings(); await window.assistant.saveConfig({ ...data.config, provider, duration: 2 });
+      }, provider);
+      await new Promise(resolve => setTimeout(resolve, 350));
+      await desktop.evaluate(async ({ clipboard, ClipboardItem, nativeImage }, { type, base64 }) => {
+        const png = Buffer.from(base64, 'base64');
+        if (nativeImage.createFromBuffer(png).isEmpty()) throw new Error('Invalid test PNG');
+        globalThis.__smokeImageInput = png;
+        globalThis.__smokeImageKind = type; globalThis.__smokeImageBytes = nativeImage.createFromBuffer(png).toPNG().length;
+        globalThis.__smokeClipboardImageBytes = png.length;
+        await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })]);
+      }, { type, base64: imageFixture });
+      assert(await desktop.evaluate(({ clipboard }) => clipboard.has('image/png')), 'Actual OS clipboard contains the test PNG');
+      await settings.evaluate(() => window.assistant.trigger());
+      await widget.locator('.dot.ready').waitFor();
+      if (type === 'mcq') {
+        await widget.locator('.answer').filter({ hasText: 'B. Paris' }).waitFor();
+        await widget.locator('.dot').hover();
+        await widget.locator('.dot').waitFor({ state: 'hidden', timeout: 5000 });
+        await widget.evaluate(() => document.querySelector('.assistant-widget').dispatchEvent(new window.MouseEvent('mouseenter')));
+        await expect(widget.locator('.panel')).toBeHidden();
+      } else {
+        await frame.locator('.dot.ready').waitFor(); await frame.locator('.dot').hover();
+        await frame.locator('.answer').filter({ hasText: type === 'code' ? 'def add' : 'Paris' }).waitFor();
+        await page.locator('#paste').hover(); await new Promise(resolve => setTimeout(resolve, 2200));
+        await frame.locator('.dot').hover(); await expect(frame.locator('.panel')).toBeVisible();
+        await frame.locator('.close').click(); await expect(widget.locator('.dot')).toBeHidden();
+      }
+      console.log(`PASS: ${provider} clipboard image → ${type}; correct timer/dismissal behavior`);
+    }
+  }
+  assert.equal(await desktop.evaluate(() => globalThis.__smokeImageUploads), 3, 'One Gemini upload per image question');
+  // Intercept only the native file chooser externally; production acquisition,
+  // decoding, provider submission and shared answer display remain real.
+  await desktop.evaluate(({ Tray, dialog, app }) => {
+    globalThis.__smokeOriginalTrayMenu = Tray.prototype.setContextMenu;
+    Tray.prototype.setContextMenu = function(menu) {
+      globalThis.__smokeTrayMenu = menu;
+      return globalThis.__smokeOriginalTrayMenu.call(this, menu);
+    };
+    const path = process.getBuiltinModule('path').join(app.getPath('userData'), 'synthetic-question.png');
+    process.getBuiltinModule('fs').writeFileSync(path, globalThis.__smokeImageInput);
+    globalThis.__smokeOriginalFileDialog = dialog.showOpenDialog;
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  });
+  await settings.evaluate(async () => {
+    const data = await window.assistant.settings(); await window.assistant.saveConfig(data.config);
+  });
+  await new Promise(resolve => setTimeout(resolve, 350));
+  await desktop.evaluate(() => globalThis.__smokeTrayMenu.items.find(item => item.label === 'Answer image file…').click());
+  await frame.locator('.dot.ready').waitFor(); await frame.locator('.dot').hover();
+  await frame.locator('.answer').filter({ hasText: 'def add' }).waitFor();
+  await frame.locator('.close').click(); await expect(widget.locator('.dot')).toBeHidden();
+  await desktop.evaluate(({ Tray, dialog }) => {
+    Tray.prototype.setContextMenu = globalThis.__smokeOriginalTrayMenu;
+    dialog.showOpenDialog = globalThis.__smokeOriginalFileDialog;
+  });
+  assert.equal(await desktop.evaluate(() => globalThis.__smokeImageUploads), 4);
+  console.log('PASS: tray image-file action reads the selected file and shares a dismissible code answer');
   await options.locator('#forget').click(); await options.locator('#status').filter({ hasText: 'Disconnected' }).waitFor();
   const count = await desktop.evaluate(() => globalThis.__smokeRequests);
-  if (count !== 5) console.log('Request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds));
-  assert.equal(count, 5, 'Each user trigger produces one request');
+  if (count !== 12) console.log('Request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds));
+  assert.equal(count, 12, 'Each user trigger produces one request');
   console.log(`Smoke passed: ${count} fixture requests. Screenshots in test-results/.`);
+} catch (error) {
+  if (desktop) console.log('Fixture request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds).catch(() => []));
+  if (desktop) {
+    const widget = desktop.windows().find(page => page.url().endsWith('widget.html'));
+    if (widget) console.log('Fixture widget state:', await widget.evaluate(() => globalThis.__smokeLastState).catch(() => undefined));
+  }
+  throw error;
 } finally {
   await browser?.close();
   if (desktop && originalClipboard !== undefined) {
-    await desktop.evaluate(async ({ clipboard }, original) => {
+    await desktop.evaluate(async ({ clipboard, ClipboardItem }, original) => {
       const current = await clipboard.readText();
+      const items = await clipboard.read();
+      const image = items.find(item => item.types.includes('image/png'));
+      const syntheticImage = image && (await image.getType('image/png')).size === globalThis.__smokeClipboardImageBytes;
       const synthetic = ['What is photosynthesis?', 'Capital of France?\nA. Berlin\nB. Paris\nC. Rome', 'Write a program to add two numbers', 'def add(a, b):\n    return a + b\n', 'Browser copy sentinel'];
-      if (synthetic.includes(current)) await clipboard.writeText(original);
+      if (synthetic.includes(current) || syntheticImage) {
+        if (globalThis.__smokeOriginalImage) await clipboard.write([new ClipboardItem({ 'image/png': globalThis.__smokeOriginalImage, 'text/plain': original })]);
+        else await clipboard.writeText(original);
+      }
     }, originalClipboard).catch(() => {});
   }
   await desktop?.close();

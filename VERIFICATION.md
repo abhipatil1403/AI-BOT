@@ -3,7 +3,7 @@
 Verified on Windows on 8 October 2026:
 
 - Lint and strict TypeScript checking pass.
-- 86 unit, provider, integration, keyboard and widget tests pass, including cookie formats, current Groq model validation, safe HTTP errors and controlled JSON-generation retries.
+- 88 unit, provider, integration, keyboard and widget tests pass, including cookie formats, current Groq model validation, safe HTTP errors, controlled JSON-generation retries and actual HTTP responses with large cookie headers.
 - Both Electron and Chromium production builds succeed.
 - NSIS installer and portable EXE packaging succeeds without native compilation.
 - The packaged application (`release/win-unpacked/AI Quick Answer.exe`) launches with its actual ASAR bundle and N-API keyboard binary.
@@ -14,7 +14,9 @@ The smoke runner installs synthetic HTTP fixtures into the test process external
 
 Version 1.0.1 was also checked against **live Groq** using the user's locally saved encrypted credential: the legacy model returned HTTP 404; authentication/model validation and descriptive, MCQ and Python code answers succeeded with `openai/gpt-oss-120b`. These checks used synthetic questions and never logged or committed the credential, provider error bodies or private clipboard contents.
 
-Authenticated live Gemini requests remain unverified. Enter complete cookies locally in desktop Settings, validate, then trigger each answer mode. Gemini Web is an unofficial session protocol and can change independently of this application. Windows build artifacts are unsigned; supply your own signing certificate for a signed distribution.
+Version 1.0.2 was checked against **live Gemini** using the explicitly supplied cookie export held only in memory. The old transport failed with UND_ERR_HEADERS_OVERFLOW; the bounded 64 KiB Gemini dispatcher successfully validated the session and returned descriptive, MCQ and Python code answers through the actual answer pipeline. No cookie values, session tokens or response bodies were logged or committed.
+
+Gemini Web is an unofficial session protocol and can change independently of this application. Windows build artifacts are unsigned; supply your own signing certificate for a signed distribution.
 
 Reproduce:
 

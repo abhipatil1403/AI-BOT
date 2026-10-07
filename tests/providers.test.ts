@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createProvider, GeminiWebProvider, GROQ_MODEL, GroqProvider, parseGeminiResponse, readBounded, request } from '../packages/providers';
+import { createServer } from 'node:http';
+import { createProvider, geminiTransport, GeminiWebProvider, GROQ_MODEL, GroqProvider, parseGeminiResponse, readBounded, request } from '../packages/providers';
 const signal = () => new AbortController().signal;
 const output = JSON.stringify({ type: 'descriptive', answer: 'Paris' });
 const geminiFrame = (text: string) => JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [['rcid', [text]]]])]]);
@@ -68,6 +69,32 @@ describe('Gemini web adapter', () => {
   it('switches providers explicitly', () => { expect(createProvider('groq', 'test')).toBeInstanceOf(GroqProvider); expect(createProvider('gemini', '{"__Secure-1PSID":"synthetic-test-cookie"}')).toBeInstanceOf(GeminiWebProvider); });
 });
 describe('bounded HTTP transport', () => {
+  it('accepts Google-sized response headers while retaining a finite header limit', async () => {
+    const server = createServer((req, res) => {
+      res.setHeader('Set-Cookie', Array.from({ length: req.url === '/oversized' ? 80 : 24 }, (_, i) => 'synthetic' + i + '=' + 'x'.repeat(1024) + '; Secure; HttpOnly'));
+      res.end('"SNlM0e":"synthetic-token"');
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Missing test server address');
+      const base = 'http://127.0.0.1:' + address.port;
+      const response = await request(geminiTransport, base, {}, 'gemini');
+      expect(response.headers.getSetCookie()).toHaveLength(24);
+      expect(await readBounded(response)).toContain('synthetic-token');
+      await expect(request(geminiTransport, base + '/oversized', {}, 'gemini')).rejects.toThrow('headers exceeded');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+  it('reports header overflow without exposing native error details or retrying it', async () => {
+    const transport = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('DO_NOT_LEAK_COOKIE', { cause: { code: 'UND_ERR_HEADERS_OVERFLOW', message: 'DO_NOT_LEAK_COOKIE' } }));
+    const error = await request(transport, 'https://gemini.google.com/app', {}, 'gemini').catch(error => error as Error);
+    expect((error as Error).message).toContain('headers exceeded');
+    expect((error as Error).message).not.toContain('DO_NOT_LEAK_COOKIE');
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
   it.each([
     [400, 'model_decommissioned', 'model unavailable'],
     [404, 'model_not_found', 'model unavailable'],

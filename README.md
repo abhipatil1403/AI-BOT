@@ -17,7 +17,7 @@ npm run dev
 
 The first launch opens Settings. Closing Settings leaves the assistant in the system tray. Double-click its tray icon to reopen Settings; use **Quit** to exit.
 
-For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.1.exe`. The portable EXE is also produced in `release/`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
+For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.2.exe`. The portable EXE is also produced in `release/`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
 
 ## Providers
 
@@ -109,6 +109,7 @@ npm run package
 - **Groq model unavailable / HTTP 400:** install version 1.0.1 or later; version 1.0.0 requests a retired model. Validate the saved key again. Check project model permissions if access is denied. Provider errors include safe HTTP status details rather than raw response bodies.
 - **Groq key invalid / rate limit:** validate your saved key, check your account quota, and retry later. A failed JSON generation gets one strict format retry; authentication, model-access and other request errors do not get format retries.
 - **Gemini session expired / web protocol unavailable:** explicitly replace your own session cookies and validate. If Google has changed its protocol, an adapter update may be required; Groq remains an independent option.
+- **Gemini validation reports AI connection failed with complete cookies:** install version 1.0.2 or later. Google's response can exceed Node's default 16 KiB header limit; the Gemini client now permits a bounded 64 KiB response header block. An oversized response gives a specific error without exposing cookies.
 - **Invalid AI response:** a strict retry is attempted once. Try a clearer question if the model still returns malformed data.
 - **Extension dot missing:** reload the page after installing the extension and use a regular HTTP/HTTPS page. Privacy mode intentionally hides it while sharing is active.
 - **Secure storage unavailable:** run under a normal Windows user session and resave the credential if your Windows profile has changed.

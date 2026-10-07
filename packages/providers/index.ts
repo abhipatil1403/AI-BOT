@@ -2,8 +2,16 @@ import { AssistantError, type AIProvider } from '../core';
 import { parseCookies, type Config } from '../schemas';
 import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
+import { Agent } from 'undici';
 
 type Transport = typeof fetch;
+// Google's Set-Cookie response headers can exceed Node's default 16 KiB.
+// Keep the higher limit scoped to Gemini, with a finite bound and normal TLS.
+const geminiAgent = new Agent({ maxHeaderSize: 65536 });
+export const geminiTransport: Transport = (input, init) => {
+  const options: RequestInit & { dispatcher: Agent } = { ...init, dispatcher: geminiAgent };
+  return fetch(input, options);
+};
 export const GROQ_MODEL = 'openai/gpt-oss-120b';
 export async function readBounded(response: Response, limit = 2_000_000): Promise<string> {
   if (!response.body) return '';
@@ -26,8 +34,11 @@ export async function request(transport: Transport, url: string, init: RequestIn
   for (let attempt = 0; attempt < 2; attempt++) {
     let res: Response;
     try { res = await transport(url, { ...init, signal, redirect: 'manual' }); }
-    catch {
+    catch (error) {
       if (signal.aborted) throw new AssistantError('timeout', 'AI request timed out or was cancelled');
+      const cause = error instanceof Error ? error.cause : undefined;
+      const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : undefined;
+      if (code === 'UND_ERR_HEADERS_OVERFLOW' || code === 'HPE_HEADER_OVERFLOW') throw new AssistantError('network', 'AI response headers exceeded the connection limit. Update the app');
       if (attempt === 0) { await delay(350, undefined, { signal }).catch(() => {}); continue; }
       throw new AssistantError('network', 'AI connection failed');
     }
@@ -121,7 +132,7 @@ export class GeminiWebProvider implements AIProvider {
   private readonly cookies: Record<string, string>;
   private session?: { token: string; build?: string; id?: string; expires: number };
   private requestId = 10000;
-  constructor(sessionInput: string, private readonly transport: Transport = fetch) { this.cookies = parseCookies(sessionInput); }
+  constructor(sessionInput: string, private readonly transport: Transport = geminiTransport) { this.cookies = parseCookies(sessionInput); }
   private headers(): Record<string, string> {
     return { Cookie: Object.entries(this.cookies).map(([name, value]) => `${name}=${value}`).join('; '), 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36' };
   }
@@ -162,6 +173,6 @@ export class GeminiWebProvider implements AIProvider {
     } catch (error) { this.session = undefined; throw error; }
   }
 }
-export function createProvider(name: Config['provider'], secret: string, transport: Transport = fetch): AIProvider {
+export function createProvider(name: Config['provider'], secret: string, transport?: Transport): AIProvider {
   return name === 'groq' ? new GroqProvider(secret, transport) : new GeminiWebProvider(secret, transport);
 }

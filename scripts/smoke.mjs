@@ -97,7 +97,12 @@ try {
       const text = JSON.stringify(answer);
       globalThis.__smokeRequestKinds.push({ provider: address.includes('api.groq.com') ? 'groq' : 'gemini', type: answer.type, image, retry: system.includes('Your previous output was invalid') });
       if (address.includes('api.groq.com')) return new Response(JSON.stringify({ choices: [{ message: { content: text }, finish_reason: 'stop' }] }));
-      return new Response(`)]}'\n123\n${JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [['rcid', [text]]]])]])}\n`);
+      const candidate = ['rcid', [text]]; candidate[8] = [2];
+      const wire = `)]}'\n123\n${JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [candidate]])]])}\n`;
+      return new Response(new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode(wire)); },
+        cancel() { globalThis.__smokeCancelledGemini = (globalThis.__smokeCancelledGemini ?? 0) + 1; }
+      }));
     };
   });
   await settings.locator('#groq-key').fill('synthetic_test_key_for_smoke');
@@ -342,10 +347,37 @@ try {
   });
   assert.equal(await desktop.evaluate(() => globalThis.__smokeImageUploads), 4);
   console.log('PASS: tray image-file action reads the selected file and shares a dismissible code answer');
+  await desktop.evaluate(async ({ clipboard, ClipboardItem }) => {
+    globalThis.__smokeImageKind = 'descriptive';
+    await clipboard.write([new ClipboardItem({
+      'image/png': new Blob([globalThis.__smokeImageInput], { type: 'image/png' }),
+      'text/plain': 'What is photosynthesis?'
+    })]);
+  });
+  await new Promise(resolve => setTimeout(resolve, 350));
+  await settings.evaluate(() => window.assistant.trigger());
+  await frame.locator('.dot.ready').waitFor(); await frame.locator('.dot').hover();
+  await frame.locator('.answer').filter({ hasText: 'Plants use light' }).waitFor();
+  await frame.locator('.close').click(); await expect(widget.locator('.dot')).toBeHidden();
+  assert.equal(await desktop.evaluate(() => globalThis.__smokeImageUploads), 5, 'Mixed content includes the image and accompanying text');
+  await desktop.evaluate(async ({ clipboard, ClipboardItem }) => {
+    await clipboard.write([new ClipboardItem({
+      'text/plain': 'Capital of France?\nA. Berlin\nB. Paris\nC. Rome',
+      'text/html': '<p>Capital of France?</p><p>A. Berlin<br>B. Paris<br>C. Rome</p>'
+    })]);
+  });
+  await new Promise(resolve => setTimeout(resolve, 350));
+  await settings.evaluate(() => window.assistant.trigger());
+  await widget.locator('.dot.ready').waitFor();
+  await widget.locator('.answer').filter({ hasText: 'B. Paris' }).waitFor();
+  await widget.locator('.dot').waitFor({ state: 'hidden', timeout: 5000 });
+  assert.equal(await desktop.evaluate(() => globalThis.__smokeImageUploads), 5, 'Browser text after an image does not reuse the previous image');
+  assert.equal(await desktop.evaluate(() => globalThis.__smokeCancelledGemini), 7, 'Completed Gemini answers cancel still-open response streams');
+  console.log('PASS: mixed clipboard content and browser-style rich text are detected automatically; open Gemini streams finish promptly');
   await options.locator('#forget').click(); await options.locator('#status').filter({ hasText: 'Disconnected' }).waitFor();
   const count = await desktop.evaluate(() => globalThis.__smokeRequests);
-  if (count !== 12) console.log('Request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds));
-  assert.equal(count, 12, 'Each user trigger produces one request');
+  if (count !== 14) console.log('Request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds));
+  assert.equal(count, 14, 'Each user trigger produces one request');
   console.log(`Smoke passed: ${count} fixture requests. Screenshots in test-results/.`);
 } catch (error) {
   if (desktop) console.log('Fixture request categories:', await desktop.evaluate(() => globalThis.__smokeRequestKinds).catch(() => []));

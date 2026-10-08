@@ -16,15 +16,21 @@ export function prepareImage(image: NativeImage): ImageQuestion {
 }
 export async function readClipboardQuestion(): Promise<QuestionInput> {
   const items = await clipboard.read();
+  const textItem = items.find(item => item.types.includes('text/plain'));
+  const readText = async () => textItem ? (await textItem.getType('text/plain')).text() : '';
   for (const item of items) {
     const type = ['image/png', 'image/jpeg', 'image/webp'].find(type => item.types.includes(type));
     if (!type) continue;
     const blob = await item.getType(type);
     if (!(blob instanceof Blob) || blob.size > 20_000_000) throw new AssistantError('size', 'Copied image is too large (20 MB maximum)');
-    return prepareImage(nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer())));
+    const question = prepareImage(nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer())));
+    const text = (await readText()).trim();
+    // Copy image in a browser can include its source URL; mixed clipboard
+    // questions can contain real instructions that must accompany the image.
+    if (text && !/^(?:https?|file):\/\/\S+$/i.test(text)) question.text = text;
+    return question;
   }
-  const item = items.find(item => item.types.includes('text/plain'));
-  return item ? (await item.getType('text/plain')).text() : '';
+  return readText();
 }
 export async function readImageFile(path: string): Promise<ImageQuestion> {
   const file = await open(path, 'r').catch(() => { throw new AssistantError('image', 'Unable to read the image file. Choose it again'); });

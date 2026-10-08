@@ -17,7 +17,7 @@ npm run dev
 
 The first launch opens Settings. Closing Settings leaves the assistant in the system tray. Double-click its tray icon to reopen Settings; use **Quit** to exit.
 
-For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.5.exe`. The portable EXE is also produced in `release/`. The browser extension is packaged separately in `release/extension`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
+For a packaged desktop installation, run `npm run package`, then open `release/AI Quick Answer Setup 1.0.6.exe`. The portable EXE is also produced in `release/`. The browser extension is packaged separately in `release/extension`. These builds are unsigned: Windows may display a publisher warning. Signing requires your own code-signing certificate and is not included.
 
 ## Providers
 
@@ -42,6 +42,8 @@ Provider validation checks authentication and never sends clipboard text or imag
 Copy an image from your browser (right-click → **Copy image**) or capture a screenshot with **Win+Shift+S**, then press **Ctrl+V**. Alternatively, right-click the assistant's tray icon and select **Answer image file…** to choose a PNG, JPEG or WebP. Copying a file in Explorer copies a file reference; use the tray picker for image files.
 
 Images use the same answer preferences: the model detects MCQs, descriptive questions and coding tasks directly from the image. MCQs expire at the selected duration even while hovered. Text/code can be hovered repeatedly until × dismissal. Existing settings are unchanged.
+
+Each paste detects its clipboard content automatically. Browser selections use the plain text included alongside HTML; images can include accompanying question text. An image's source URL is ignored. Switching between image and text questions requires no input-mode selection.
 
 Groq image requests use `qwen/qwen3.8-27b` with inline image data and JSON mode, as described in [Groq's vision documentation](https://console.groq.com/docs/vision). Text requests continue using `openai/gpt-oss-120b`. Your Groq project must permit the vision model. Gemini Web uploads the image to Google's content-push service and attaches its returned reference to a temporary question. The [upstream web client](https://github.com/Expert-Vision-Software/gemini-web-sdk/blob/main/src/utils/upload.js) documents this unofficial upload format.
 
@@ -78,7 +80,7 @@ The extension works on ordinary HTTP/HTTPS pages. Chromium internal pages, the w
 
 **Verify the actual sharing preview:** this is capture exclusion, not a universal guarantee of invisibility. Microsoft [does not guarantee protection against every capture method](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity), and Electron notes that the change takes effect on the next desktop composition. Hardware capture, cameras and capture methods that ignore affinity can still see the windows. This feature does not conceal the process in Task Manager or protect other applications.
 
-The clipboard is read only on the configured shortcut or an explicit Answer clipboard action. Empty/unsupported contents do nothing. Image content takes precedence over an accompanying URL. Text is normalized, bounded to 20,000 characters and sent only to the selected provider over HTTPS. The clipboard is changed only by **Copy code**. Never trigger with secrets or private material you do not want that provider to receive.
+The clipboard is read only on the configured shortcut or an explicit Answer clipboard action. Empty/unsupported contents do nothing. Images include accompanying question text but ignore a source URL. Text is normalized, bounded to 20,000 characters and sent only to the selected provider over HTTPS. The clipboard is changed only by **Copy code**. Never trigger with secrets or private material you do not want that provider to receive.
 
 Answers/questions are kept in memory only and replaced by the next valid request or settings change. There is no local history or content cache. Provider retention policies still apply. Code is treated as text and is never executed. All model responses pass strict JSON/type/language/option validation; invalid output gets one controlled format retry.
 
@@ -127,6 +129,7 @@ npm run package
 - **Groq key invalid / rate limit:** validate your saved key, check your account quota, and retry later. A failed JSON generation gets one strict format retry; authentication, model-access and other request errors do not get format retries.
 - **Gemini session expired / web protocol unavailable:** explicitly replace your own session cookies and validate. If Google has changed its protocol, an adapter update may be required; Groq remains an independent option.
 - **Gemini validation reports AI connection failed with complete cookies:** install version 1.0.2 or later. Google's response can exceed Node's default 16 KiB header limit; the Gemini client now permits a bounded 64 KiB response header block. An oversized response gives a specific error without exposing cookies.
+- **Gemini images work but text times out or reports AI connection failed:** install version 1.0.6 or later. Completed answers are read incrementally from Gemini's stream without waiting for the connection to close. The 30-second connection deadline ends when headers arrive; the overall question deadline still applies. Interrupted partial answers are rejected, and body timeouts produce a specific timeout message.
 - **Invalid AI response:** a strict retry is attempted once. Try a clearer question if the model still returns malformed data.
 - **Extension dot missing:** reload the rebuilt extension and the page after upgrading, and use a regular HTTP/HTTPS page. Capture exclusion intentionally hides the browser overlay while Screen sharing is active; use the protected desktop widget locally.
 - **Secure storage unavailable:** run under a normal Windows user session and resave the credential if your Windows profile has changed.

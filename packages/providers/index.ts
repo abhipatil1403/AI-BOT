@@ -31,8 +31,13 @@ export async function readBounded(response: Response, limit = 2_000_000): Promis
   } finally { await reader.cancel(); }
 }
 export async function request(transport: Transport, url: string, init: RequestInit, provider: string): Promise<Response> {
-  const signal = AbortSignal.any([init.signal ?? new AbortController().signal, AbortSignal.timeout(30000)]);
+  const parent = init.signal ?? AbortSignal.timeout(30000);
   for (let attempt = 0; attempt < 2; attempt++) {
+    const headers = new AbortController();
+    const signal = AbortSignal.any([parent, headers.signal]);
+    // Bound connection/header waits without cutting an active Gemini response
+    // stream off after 30 seconds. The caller's deadline still bounds its body.
+    const timer = setTimeout(() => headers.abort(), 30000);
     let res: Response;
     try { res = await transport(url, { ...init, signal, redirect: 'manual' }); }
     catch (error) {
@@ -42,7 +47,7 @@ export async function request(transport: Transport, url: string, init: RequestIn
       if (code === 'UND_ERR_HEADERS_OVERFLOW' || code === 'HPE_HEADER_OVERFLOW') throw new AssistantError('network', 'AI response headers exceeded the connection limit. Update the app');
       if (attempt === 0) { await delay(350, undefined, { signal }).catch(() => {}); continue; }
       throw new AssistantError('network', 'AI connection failed');
-    }
+    } finally { clearTimeout(timer); }
     if (res.ok) return res;
     if (res.status === 401 || (res.status >= 300 && res.status < 400)) {
       await res.body?.cancel();
@@ -108,8 +113,9 @@ export class GroqProvider implements AIProvider {
 function nested(value: unknown, path: number[]): unknown {
   return path.reduce<unknown>((current, key) => Array.isArray(current) ? current[key] : undefined, value);
 }
-export function parseGeminiResponse(raw: string): string {
+function geminiFrame(raw: string): { answer: string; complete: boolean; partial: boolean; final: boolean } {
   let answer = '';
+  let complete = false; let partial = false; let final = false;
   for (const line of raw.split('\n')) {
     const text = line.trim();
     if (!text.startsWith('[')) continue;
@@ -126,10 +132,51 @@ export function parseGeminiResponse(raw: string): string {
       try { value = JSON.parse(payload); } catch { continue; }
       const candidate = nested(value, [4, 0, 1, 0]);
       if (typeof candidate === 'string' && candidate) answer = candidate;
+      const indicator = nested(value, [4, 0, 8, 0]);
+      if (indicator === 2) complete = true;
+      if (typeof nested(value, [25]) === 'string') final = true;
+      if (indicator === 1) partial = true;
     }
   }
-  if (!answer) throw new AssistantError('response', 'Gemini returned an invalid response');
-  return answer;
+  return { answer, complete, partial, final };
+}
+export function parseGeminiResponse(raw: string): string {
+  const result = geminiFrame(raw);
+  if (!result.answer) throw new AssistantError('response', 'Gemini returned an invalid response');
+  return result.answer;
+}
+export async function readGeminiAnswer(response: Response, signal: AbortSignal): Promise<string> {
+  if (!response.body) throw new AssistantError('response', 'Gemini returned an invalid response');
+  const reader = response.body.getReader(); const decoder = new TextDecoder();
+  let pending = ''; let bytes = 0; let answer = ''; let partial = false; let complete = false; let final = false;
+  const consume = (line: string) => {
+    const frame = geminiFrame(line);
+    if (frame.answer) answer = frame.answer;
+    partial ||= frame.partial; complete ||= frame.complete; final ||= frame.final;
+    return (complete || (final && !partial)) && !!answer;
+  };
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        consume(pending + decoder.decode());
+        if (!answer || (partial && !complete)) throw new AssistantError('response', 'Gemini returned an incomplete response');
+        return answer;
+      }
+      bytes += chunk.value.byteLength;
+      if (bytes > 2_000_000) throw new AssistantError('response', 'Provider response is too large');
+      pending += decoder.decode(chunk.value, { stream: true });
+      let end: number;
+      while ((end = pending.indexOf('\n')) !== -1) {
+        const line = pending.slice(0, end); pending = pending.slice(end + 1);
+        if (consume(line)) return answer;
+      }
+    }
+  } catch (error) {
+    if (signal.aborted || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))) throw new AssistantError('timeout', 'AI request timed out or was cancelled');
+    if (error instanceof AssistantError) throw error;
+    throw new AssistantError('network', 'AI connection failed');
+  } finally { void reader.cancel().catch(() => {}); }
 }
 export class GeminiWebProvider implements AIProvider {
   private readonly cookies: Record<string, string>;
@@ -187,7 +234,7 @@ export class GeminiWebProvider implements AIProvider {
         body: new URLSearchParams({ at: session.token, 'f.req': JSON.stringify([null, JSON.stringify(payload)]) }).toString()
       }, 'gemini');
       this.updateCookies(res);
-      return parseGeminiResponse(await readBounded(res));
+      return await readGeminiAnswer(res, signal);
     } catch (error) { this.session = undefined; throw error; }
   }
 }

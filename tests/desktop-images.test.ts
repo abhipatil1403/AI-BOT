@@ -33,10 +33,18 @@ describe('desktop image acquisition', () => {
     expect(() => prepareImage({ isEmpty: () => true } as NativeImage)).toThrow('unreadable');
   });
   it('prefers actual image bytes over an accompanying copied URL', async () => {
-    const getType = vi.fn().mockResolvedValue(new Blob(['synthetic image'], { type: 'image/png' }));
+    const getType = vi.fn(async (type: string) => type === 'text/plain' ? new Blob(['https://example.test/question.png']) : new Blob(['synthetic image'], { type: 'image/png' }));
     mocks.read.mockResolvedValue([{ types: ['text/plain', 'image/png'], getType }]); mocks.createFromBuffer.mockReturnValue(native());
-    expect(await readClipboardQuestion()).toHaveProperty('image.mimeType', 'image/png');
-    expect(getType).toHaveBeenCalledExactlyOnceWith('image/png');
+    const question = await readClipboardQuestion();
+    expect(question).toHaveProperty('image.mimeType', 'image/png'); expect(question).not.toHaveProperty('text');
+    expect(getType).toHaveBeenCalledWith('image/png');
+  });
+  it('automatically includes text with an image and handles the next text-only copy without selecting a mode', async () => {
+    mocks.createFromBuffer.mockReturnValue(native());
+    mocks.read.mockResolvedValueOnce([{ types: ['text/plain', 'image/png'], getType: async (type: string) => new Blob([type === 'text/plain' ? 'Explain the highlighted part' : 'synthetic image']) }])
+      .mockResolvedValueOnce([{ types: ['text/plain', 'text/html'], getType: async () => new Blob(['Next text question?']) }]);
+    expect(await readClipboardQuestion()).toHaveProperty('text', 'Explain the highlighted part');
+    expect(await readClipboardQuestion()).toBe('Next text question?');
   });
   it('reads text from the same snapshot and ignores unsupported clipboard formats', async () => {
     mocks.read.mockResolvedValue([{ types: ['text/plain'], getType: () => Promise.resolve(new Blob(['Question?'])) }]);

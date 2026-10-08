@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createServer } from 'node:http';
-import { createProvider, geminiTransport, GeminiWebProvider, GROQ_MODEL, GroqProvider, parseGeminiResponse, readBounded, request } from '../packages/providers';
+import { createProvider, geminiTransport, GeminiWebProvider, GROQ_MODEL, GroqProvider, parseGeminiResponse, readBounded, readGeminiAnswer, request } from '../packages/providers';
 const signal = () => new AbortController().signal;
 const output = JSON.stringify({ type: 'descriptive', answer: 'Paris' });
 const geminiFrame = (text: string) => JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [['rcid', [text]]]])]]);
@@ -36,6 +36,39 @@ describe('Groq adapter', () => {
   });
 });
 describe('Gemini web adapter', () => {
+  it('returns a completed answer without waiting for the HTTP stream to close', async () => {
+    const candidate: unknown[] = ['rcid', [output]]; candidate[8] = [2];
+    const frame = JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [candidate]])]]) + '\n';
+    const cancel = vi.fn(); const data = new TextEncoder().encode(frame);
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(data.slice(0, 19)); controller.enqueue(data.slice(19)); }, cancel });
+    await expect(readGeminiAnswer(new Response(body), signal())).resolves.toBe(output);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+  it('waits for completion rather than returning a partial but valid JSON answer', async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const candidate: unknown[] = ['rcid', [output]]; candidate[8] = [1];
+    const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify([['wrb.fr', null, JSON.stringify(value)]]) + '\n');
+    const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; value.enqueue(encode([null, null, null, null, [candidate]])); } });
+    const resolved = vi.fn(); const reading = readGeminiAnswer(new Response(body), signal()).then(value => { resolved(); return value; });
+    await new Promise(resolve => setTimeout(resolve, 10)); expect(resolved).not.toHaveBeenCalled();
+    const final: unknown[] = []; final[25] = 'synthetic-final-context'; controller.enqueue(encode(final));
+    await new Promise(resolve => setTimeout(resolve, 10)); expect(resolved).not.toHaveBeenCalled();
+    candidate[8] = [2]; controller.enqueue(encode([null, null, null, null, [candidate]]));
+    await expect(reading).resolves.toBe(output);
+  });
+  it('rejects truncated partial streams and bounds streamed bytes', async () => {
+    const candidate: unknown[] = ['rcid', [output]]; candidate[8] = [1];
+    await expect(readGeminiAnswer(new Response(JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, null, null, [candidate]])]])), signal())).rejects.toThrow('incomplete');
+    await expect(readGeminiAnswer(new Response('x'.repeat(2_000_001)), signal())).rejects.toThrow('too large');
+  });
+  it('maps a body timeout to the safe timeout message instead of a generic connection error', async () => {
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.error(new DOMException('DO_NOT_LEAK_PROVIDER_DATA', 'TimeoutError')); } });
+    await expect(readGeminiAnswer(new Response(body), signal())).rejects.toThrow('AI request timed out or was cancelled');
+  });
+  it('still reports rate limits encountered inside a streamed response', async () => {
+    const part: unknown[] = ['wrb.fr']; part[5] = [null, null, [[null, [1037]]]];
+    await expect(readGeminiAnswer(new Response(JSON.stringify([part]) + '\n'), signal())).rejects.toThrow('Rate limit');
+  });
   it('uses supplied Cookie header values for session validation', async () => {
     const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response('"SNlM0e":"synthetic-token"'));
     await new GeminiWebProvider('Cookie: __Secure-1PSID=synthetic-cookie==; SSID=synthetic-ssid', transport).validate(signal());
@@ -69,6 +102,24 @@ describe('Gemini web adapter', () => {
   it('switches providers explicitly', () => { expect(createProvider('groq', 'test')).toBeInstanceOf(GroqProvider); expect(createProvider('gemini', '{"__Secure-1PSID":"synthetic-test-cookie"}')).toBeInstanceOf(GeminiWebProvider); });
 });
 describe('bounded HTTP transport', () => {
+  it('clears the 30-second header timer after headers arrive while retaining the caller deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const parent = new AbortController(); let bodySignal: AbortSignal | undefined;
+      const transport = vi.fn<typeof fetch>(async (_url, init) => { bodySignal = init?.signal as AbortSignal; return new Response('answer'); });
+      await request(transport, 'https://gemini.google.com/app', { signal: parent.signal }, 'gemini');
+      await vi.advanceTimersByTimeAsync(31000); expect(bodySignal?.aborted).toBe(false);
+      parent.abort(); expect(bodySignal?.aborted).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+  it('still times out a connection that never returns headers', async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))));
+      const result = expect(request(transport, 'https://gemini.google.com/app', { signal: signal() }, 'gemini')).rejects.toThrow('timed out');
+      await vi.advanceTimersByTimeAsync(30000); await result;
+    } finally { vi.useRealTimers(); }
+  });
   it('accepts Google-sized response headers while retaining a finite header limit', async () => {
     const server = createServer((req, res) => {
       res.setHeader('Set-Cookie', Array.from({ length: req.url === '/oversized' ? 80 : 24 }, (_, i) => 'synthetic' + i + '=' + 'x'.repeat(1024) + '; Secure; HttpOnly'));
